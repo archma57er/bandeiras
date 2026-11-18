@@ -140,7 +140,7 @@ function simular() {
   const espacosFora = () => s.niv.casa ? CONSTRUCOES.casa.niveis[s.niv.casa - 1].espacosFora : 0;
   const ocupadosFora = () => ['fabricaPedra', 'serracao', 'serralharia', 'quinta'].filter(k => s.niv[k] > 0).length;
   const espacosDentro = () => s.niv.casa ? CONSTRUCOES.casa.niveis[s.niv.casa - 1].espacosDentro : 0;
-  const ocupadosDentro = () => ['cama', 'sofa', 'escritorio'].filter(k => s.niv[k] > 0).length;
+  const ocupadosDentro = () => ['cama', 'sofa', 'escritorio', 'biblioteca'].filter(k => s.niv[k] > 0).length;
   // Armazenamento: materiais (pedra+ferro+madeira, espaço partilhado) = mochila ou casa + baús;
   // comida (espaço próprio) = mochila ou casa + frigorífico; ouro sem limite
   const MAT = ARMAZENAMENTO.materiais;
@@ -200,10 +200,13 @@ function simular() {
     if (s.niv.casa) cumprir(d, 'zona');
     // Conhecer as fações (assume-se que o jogador faz as missões assim que aparecem)
     if (nivel() >= 5) ['fotoElfos', 'fotoGnomos', 'fotoHumanos'].forEach(id => cumprir(d, id));
-    // Estudar cada fação: 150 de ouro cada (paga-se quando houver ouro)
+    // Estudar cada fação: paga-se o custo (quando houver) e recebe-se o prémio da missão (o dobro)
     if (nivel() >= 6) for (const id of ['estudarElfos', 'estudarGnomos', 'estudarHumanos']) {
       const m = MISSOES.find(x => x.id === id);
-      if (!s.missoes.has(id) && s.r.ouro >= m.custo.ouro) { s.r.ouro -= m.custo.ouro; cumprir(d, id); }
+      if (!s.missoes.has(id) && Object.entries(m.custo).every(([k, v]) => s.r[k] >= v)) {
+        for (const [k, v] of Object.entries(m.custo)) s.r[k] -= v;
+        cumprir(d, id);
+      }
     }
     if (nivel() >= 7) cumprir(d, 'provaFacao1');
     if (nivel() >= 8) cumprir(d, 'provaFacao2');

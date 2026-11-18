@@ -138,7 +138,7 @@ const classificar = el => { const c = CATEGORIAS.find(c => c.teste(el.t, el)); r
 // da data, por isso todos os jogadores veem a feira no mesmo sítio.
 const FEIRA = {
   nome: 'Feira', icone: '🎪', cor: '#9b59b6',
-  horasAnexar: 0.5,          // anexa-se depressa; dá acesso a vender enquanto a feira lá estiver
+  horasAnexar: 0.25,         // 15 min no local; anexa-se depressa; dá acesso a vender enquanto a feira lá estiver
   diasPorSitio: 3,
   candidato: t => t.amenity === 'marketplace' || t.place === 'square',
 };

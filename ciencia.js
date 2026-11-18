@@ -83,7 +83,7 @@ const ARVORES_FACAO = {
     },
     lar: {
       nome: 'Lar', icone: '🏡',
-      descricao: 'Celeiro: o frigorífico guarda mais · Turnos: as construções de produção acumulam mais horas · Cão de guarda: pode ter 1 cão, que às vezes defende a casa de um roubo.',
+      descricao: 'Celeiro: o frigorífico guarda mais · Turnos: as construções de produção acumulam mais horas · Cão de guarda: pode ter 1 cão, que às vezes defende a casa de um roubo · Território: os POIs do território (menos supermercados e bancos) dão +1 de cada recurso que produzem, em cada recolha (ex.: restaurante +1 de comida).',
       niveis: [
         { frigorifico: 0.15, horasProducao: 3,  defesaCao: 0.02 },
         { frigorifico: 0.30, horasProducao: 6,  defesaCao: 0.03 },
@@ -91,6 +91,8 @@ const ARVORES_FACAO = {
         { frigorifico: 0.60, horasProducao: 12, defesaCao: 0.05 },
         { frigorifico: 0.75, horasProducao: 12, defesaCao: 0.06 },   // turnos: no máximo 24 h
       ],
+      extraTerritorio: 1,                        // território: +1 de cada recurso por ciclo recolhido…
+      excetoTerritorio: ['mercado', 'banco'],    // …menos nos supermercados e bancos
     },
   },
 };
@@ -98,14 +100,15 @@ const ARVORES_FACAO = {
 ARVORES_FACAO.elfos = {
   trilho: {
     nome: 'Trilho', icone: '🌲',
-    descricao: 'Ganha madeira a andar dentro de matas, pinhais e parques, e ciência por cada 10 km andados (em qualquer lado).',
+    descricao: 'Ganha madeira a andar dentro de matas, pinhais e parques, e ciência por cada 10 km andados (em qualquer lado). Território: a mata dentro do teu território dá madeira todos os dias (1 por cada hectare, até um máximo).',
     niveis: [
-      { metrosPorMadeira: 1000, cienciaPor10km: 2 },
-      { metrosPorMadeira: 900,  cienciaPor10km: 3 },
-      { metrosPorMadeira: 800,  cienciaPor10km: 3 },
-      { metrosPorMadeira: 700,  cienciaPor10km: 4 },
-      { metrosPorMadeira: 500,  cienciaPor10km: 5 },
+      { metrosPorMadeira: 1000, cienciaPor10km: 2, madeiraTerritorioMax: 2 },
+      { metrosPorMadeira: 900,  cienciaPor10km: 3, madeiraTerritorioMax: 3 },
+      { metrosPorMadeira: 800,  cienciaPor10km: 3, madeiraTerritorioMax: 4 },
+      { metrosPorMadeira: 700,  cienciaPor10km: 4, madeiraTerritorioMax: 5 },
+      { metrosPorMadeira: 500,  cienciaPor10km: 5, madeiraTerritorioMax: 6 },
     ],
+    haPorMadeira: 1,            // território: 1 🪵 por dia por cada hectare de mata lá dentro (até madeiraTerritorioMax)
   },
   guardioes: {
     nome: 'Guardiões', icone: '🏛️',
@@ -147,8 +150,10 @@ ARVORES_FACAO.elfos = {
 ARVORES_FACAO.gnomos = {
   tesouro: {
     nome: 'Tesouro', icone: '💰',
-    descricao: 'Todo o ouro produzido rende mais: POIs, bancos, casa e monumentos (não conta nas vendas da feira nem nos juros).',
+    descricao: 'Todo o ouro produzido rende mais: POIs, bancos, casa e monumentos (não conta nas vendas da feira nem nos juros). Território: cada supermercado e cada banco teu dentro do território paga uma taxa de ouro por dia (os restaurantes não).',
     niveis: [0.05, 0.10, 0.15, 0.20, 0.25],
+    taxaComercio: [1, 1, 2, 2, 3],                       // 🪙 por dia por cada POI de comércio no território, por nível
+    categoriasComercio: ['mercado', 'banco'],              // supermercados e bancos (restaurantes não)
   },
   mercador: {
     nome: 'Mercador', icone: '⚖️',
@@ -200,14 +205,14 @@ const EFEITO_RAMO = {
   colheita:    v => `POIs produzem +${pct(v)} de comida, pedra, ferro e madeira`,
   oficios:     v => `desbloqueia: ${v}`,
   resistencia: v => `anexar gasta −${pct(v.energiaAnexar)} de energia · obras −${pct(v.tempoObra)} de tempo`,
-  lar:         v => `frigorífico +${pct(v.frigorifico)} · construções acumulam +${v.horasProducao} h · cão defende ${pct(v.defesaCao)} dos roubos`,
+  lar:         v => `frigorífico +${pct(v.frigorifico)} · construções acumulam +${v.horasProducao} h · cão defende ${pct(v.defesaCao)} dos roubos · POIs do território +1 de cada recurso por recolha (menos supermercados e bancos)`,
   // Elfos
-  trilho:      v => `1 🪵 a cada ${v.metrosPorMadeira} m em matas e parques · ${v.cienciaPor10km} 🔬 por cada 10 km`,
+  trilho:      v => `1 🪵 a cada ${v.metrosPorMadeira} m em matas e parques · ${v.cienciaPor10km} 🔬 por cada 10 km · mata no território: 1 🪵/dia por cada hectare (máx. ${v.madeiraTerritorioMax})`,
   guardioes:   v => `monumentos até nível ${v.nivelMonumento} (+25% por nível) · monumento grande dá +${v.alegriaGrande} alegria · outros POIs +50% de tempo a anexar`,
   esconderijo: v => `${v.esconderijos} esconderijo na mata com ${v.capacidade} de espaço`,
   frugal:      v => `pedra e ferro pagos em madeira · comida ${v.comidaDia}/dia · 20 km num dia = +${v.alegria20km} alegria`,
   // Gnomos
-  tesouro:     v => `ouro produzido +${pct(v)}`,
+  tesouro:     (v, i) => `ouro produzido +${pct(v)} · cada supermercado e banco no território dá ${ARVORES_FACAO.gnomos.tesouro.taxaComercio[i]} 🪙/dia`,
   mercador:    v => `construções com −${pct(v)} de materiais (+10 🪙 por unidade a menos)`,
   feirante:    v => `vendas na feira +${pct(v.venda)} · controlar uma feira dá ${pct(v.taxa)} do ouro dos outros`,
   banca:       v => `empréstimos a ${pct(v.juro)} em 7 dias, até ${v.maxPorBanco} 🪙 por banco`,
@@ -217,7 +222,7 @@ const EFEITO_RAMO = {
 function resumoArvore(facao, ateNivel = 2) {
   return Object.entries(ARVORES_FACAO[facao] || {}).map(([id, r]) => ({
     icone: r.icone, nome: r.nome, descricao: r.descricao,
-    niveis: r.niveis.slice(0, ateNivel).map((v, i) => ({ nivel: i + 1, texto: EFEITO_RAMO[id](v), custo: NIVEIS_CIENCIA_FACAO[i] })),
+    niveis: r.niveis.slice(0, ateNivel).map((v, i) => ({ nivel: i + 1, texto: EFEITO_RAMO[id](v, i), custo: NIVEIS_CIENCIA_FACAO[i] })),
   }));
 }
 
@@ -250,6 +255,7 @@ function bonusCiencia(niveis = {}) {
     frigorificoExtra: lar.frigorifico,
     horasProducaoExtra: lar.horasProducao,
     defesaCao: lar.defesaCao,
+    extraTerritorio: nv('lar') ? H.lar.extraTerritorio : 0,
     // Elfos
     ...bonusElfos(nv),
     // Gnomos
@@ -261,6 +267,7 @@ function bonusGnomos(nv) {
   const f = de('feirante', { venda: 0, taxa: 0 }), b = de('banca', { juro: 0, maxPorBanco: 0 }), s = de('submundo', { ladroesDia: 0, parteLadrao: 0 });
   return {
     ouroExtra: de('tesouro', 0),
+    taxaComercio: nv('tesouro') ? G.tesouro.taxaComercio[nv('tesouro') - 1] : 0,
     descontoMateriaisOuro: de('mercador', 0),
     vendaFeiraExtra: f.venda, taxaFeira: f.taxa,
     juroEmprestimo: b.juro, maxEmprestimoPorBanco: b.maxPorBanco,
@@ -269,12 +276,13 @@ function bonusGnomos(nv) {
 }
 function bonusElfos(nv) {
   const E = ARVORES_FACAO.elfos, de = (r, def) => nv(r) ? E[r].niveis[nv(r) - 1] : def;
-  const t = de('trilho', { metrosPorMadeira: 0, cienciaPor10km: 0 });
+  const t = de('trilho', { metrosPorMadeira: 0, cienciaPor10km: 0, madeiraTerritorioMax: 0 });
   const g = de('guardioes', { nivelMonumento: 1, alegriaGrande: 0 });
   const e = de('esconderijo', { capacidade: 0, esconderijos: 0 });
   const f = de('frugal', { comidaDia: null, alegria20km: 0 });
   return {
     metrosPorMadeira: t.metrosPorMadeira, cienciaPor10km: t.cienciaPor10km,
+    madeiraTerritorioMax: t.madeiraTerritorioMax, haPorMadeira: E.trilho.haPorMadeira,
     nivelMonumentoMax: g.nivelMonumento, alegriaMonumentoGrande: g.alegriaGrande,
     anexarOutrosMult: nv('guardioes') ? E.guardioes.anexarOutros : 1,
     capacidadeEsconderijo: e.capacidade, esconderijos: e.esconderijos,

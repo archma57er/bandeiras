@@ -231,7 +231,7 @@ let modoTeste = false, precisaoAtual = 0;
 const REC = ['ouro', 'comida', 'pao', 'pedra', 'ferro', 'madeira', 'ciencia'];
 const MAT = ARMAZENAMENTO.materiais;
 const FORA = ['fabricaPedra', 'serracao', 'serralharia', 'quinta', 'moinho'];
-const DENTRO = ['cama', 'sofa', 'escritorio'];
+const DENTRO = ['cama', 'sofa', 'escritorio', 'biblioteca'];
 
 const POIS = construirPois(OSM_POIS, POIS_MANUAIS, POIS_EXCLUIDOS, CONCELHOS);
 const CAND_FEIRA = candidatosFeira(OSM_POIS, CONCELHOS);
@@ -263,6 +263,53 @@ const agora = () => Date.now() + (P ? P.salto : 0);   // relógio do jogo (o bot
 const nivel = () => progressoNivel(P.xp).n;
 const est = id => P.pois[id] || (P.pois[id] = { ms: 0, dono: false, acc: 0 });
 const meus = () => POIS.filter(p => est(p.id).dono);
+// ---- Território: círculo da casa (cresce com o nível da casa) + círculos das torres prontas ----
+const raioCasaTerr = () => P.niv.casa ? TERRITORIO.raioCasa[Math.min(P.niv.casa, TERRITORIO.raioCasa.length) - 1] : 0;
+const torresProntas = () => (P.torres || []).filter(t => t.pronta);
+const circulosTerritorio = () => !P.casa || !P.niv.casa ? [] : [{ lat: P.casa.lat, lng: P.casa.lng, raio: raioCasaTerr() },
+  ...torresProntas().map(t => ({ lat: t.lat, lng: t.lng, raio: TERRITORIO.torre.raio }))];
+const noTerritorio = p => circulosTerritorio().some(c => L.latLng(c.lat, c.lng).distanceTo([p.lat, p.lng]) <= c.raio);
+const meusFora = () => meus().filter(p => !noTerritorio(p));   // só estes contam para o limite de POIs do nível
+// Hectares de natureza dentro do território (pontos numa grelha de 20 m; guarda-se enquanto o território não muda)
+let cacheNatTerr = { chave: '', ha: 0 };
+function naturezaNoTerritorio() {
+  const C = circulosTerritorio(), chave = JSON.stringify(C);
+  if (chave === cacheNatTerr.chave) return cacheNatTerr.ha;
+  let ha = 0;
+  if (C.length) {
+    const passo = 20, mLat = 111320, mLng = 111320 * Math.cos(C[0].lat * Math.PI / 180);
+    const minLat = Math.min(...C.map(c => c.lat - c.raio / mLat)), maxLat = Math.max(...C.map(c => c.lat + c.raio / mLat));
+    const minLng = Math.min(...C.map(c => c.lng - c.raio / mLng)), maxLng = Math.max(...C.map(c => c.lng + c.raio / mLng));
+    let pontos = 0;
+    for (let la = minLat; la <= maxLat; la += passo / mLat) for (let ln = minLng; ln <= maxLng; ln += passo / mLng) {
+      if (C.some(c => ((la - c.lat) * mLat) ** 2 + ((ln - c.lng) * mLng) ** 2 <= c.raio ** 2) && naNatureza(la, ln)) pontos++;
+    }
+    ha = pontos * passo * passo / 10000;
+  }
+  cacheNatTerr = { chave, ha };
+  return ha;
+}
+// Bónus de território das fações, por dia: 🌲 Trilho (Elfos) madeira da mata · 💰 Tesouro (Gnomos) taxa do comércio
+const poisComercioTerr = () => meus().filter(p => ARVORES_FACAO.gnomos.tesouro.categoriasComercio.includes(p.cat) && noTerritorio(p));
+function ganhosTerritorioDia() {
+  const b = bonus(), g = {};
+  if (b.madeiraTerritorioMax) { const m = Math.min(b.madeiraTerritorioMax, naturezaNoTerritorio() / b.haPorMadeira); if (m > 0.01) g.madeira = m; }
+  if (b.taxaComercio) { const n = poisComercioTerr().length; if (n) g.ouro = n * b.taxaComercio; }
+  return g;
+}
+// Os POIs que entram no território passam a ser do jogador sozinhos
+function atualizarTerritorio() {
+  const novos = [];
+  for (const p of POIS) {
+    const e = est(p.id);
+    if (e.dono || !noTerritorio(p)) continue;
+    e.dono = true; e.acc = 0; if (P.anexando === p.id) P.anexando = null;
+    if (categoriaPorId(p.cat).produz.comida) cumprir('comida');
+    atualizarPin(p); novos.push(p);
+  }
+  if (novos.length) aviso(`🗼 Território: ${novos.length === 1 ? novos[0].nome + ' passou' : novos.length + ' POIs passaram'} a ser teu${novos.length === 1 ? '' : 's'}`);
+  desenharCasa();
+}
 const casaNv = k => k === 'casa' ? P.niv.casa : P.niv[k] || 0;
 const nvDe = k => CONSTRUCOES[k].niveis[casaNv(k) - 1];
 const emCasa = () => !!(P.casa && P.niv.casa && presente(P.casa, RAIO_CASA));
@@ -609,10 +656,17 @@ $('escConfirmar').onclick = () => {
   acabarEscolherCasa(); desenharCasa(); aviso(`🏠 Casa marcada · a obra demora ${nv.horas} h`); tick();
 };
 function desenharCasa() {
+  if (!mapa) return;
   if (pinCasa) pinCasa.forEach(l => mapa.removeLayer(l));
   if (!P.casa) return;
+  const T = TERRITORIO.torre;
   pinCasa = [
-    L.circle([P.casa.lat, P.casa.lng], { radius: RAIO_CASA, color: P.cor, weight: 2, fillOpacity: .12, interactive: false }).addTo(mapa),
+    L.circle([P.casa.lat, P.casa.lng], { radius: raioCasaTerr() || RAIO_CASA, color: P.cor, weight: 2, fillOpacity: .12, interactive: false }).addTo(mapa),
+    ...(P.torres || []).flatMap(t => [
+      L.circle([t.lat, t.lng], { radius: T.raio, color: P.cor, weight: 2, fillOpacity: t.pronta ? .12 : .04, dashArray: t.pronta ? null : '6 6', interactive: false }).addTo(mapa),
+      L.marker([t.lat, t.lng], { interactive: false, icon: L.divIcon({ className: 'pinpoi', iconSize: [36, 36], iconAnchor: [18, 18],
+        html: `<div class="p" style="border-color:${P.cor}${t.pronta ? '' : ';opacity:.6'}">${T.icone}</div><div class="etiqueta">${t.pronta ? 'Torre' : 'Torre em obra'}</div>` }) }).addTo(mapa),
+    ]),
     L.marker([P.casa.lat, P.casa.lng], { icon: L.divIcon({ className: 'pinpoi', iconSize: [36, 36], iconAnchor: [18, 18],
       html: `<div class="p" style="border-color:${P.cor}">🏠</div><div class="etiqueta">Casa</div>` }) }).addTo(mapa)
       .on('click', ev => { L.DomEvent.stopPropagation(ev); abrir('casa'); }),
@@ -667,7 +721,7 @@ const bauAbertoHoje = () => P.bauDia === diaDe(agora());
 function abrirBauDiario() {
   if (bauAbertoHoje()) return;
   const g = sortearBauDiario();
-  P.bauDia = diaDe(agora()); ganhar(g, 'baú diário');
+  P.bauDia = diaDe(agora()); P.bauPremio = g; ganhar(g, 'baú diário');
   aviso(`🎁 Baú diário: ${fmtRec(g)}`); tick();
 }
 const missoesDisponiveis = () => MISSOES.filter(m => nivel() >= m.nivel && !P.missoes[m.id]);
@@ -697,6 +751,24 @@ function avancar(de, ate) {
     e.acc = Math.min(c.maxCiclos, e.acc + dtH * ((c.horasPorDia || 24) / 24) / c.cicloHoras);
   }
   for (const k of FORA) if (P.niv[k]) P.fora[k] = Math.min(maxHorasFora(k), (P.fora[k] || 0) + dtH);
+  // 🗼 Bónus de território: vai entrando aos poucos ao longo do dia
+  const gT = ganhosTerritorioDia();
+  if (Object.keys(gT).length) {
+    P.terrAcc = P.terrAcc || {};
+    for (const [k, v] of Object.entries(gT)) {
+      P.terrAcc[k] = (P.terrAcc[k] || 0) + v * dtH / 24;
+      const n = Math.floor(P.terrAcc[k]); if (n) { P.terrAcc[k] -= n; ganhar({ [k]: n }, 'território'); }
+    }
+  }
+  // 📚 Biblioteca: 1 🔬 por hora; entrega sozinha às 17h de cada dia
+  if (P.niv.biblioteca) {
+    const B = nvDe('biblioteca');
+    P.bibAcc = (P.bibAcc || 0) + dtH * B.cienciaPorHora;
+    if (vezesAsHoras(de, ate, B.entregaAs)) {
+      const n = Math.floor(P.bibAcc);
+      if (n) { P.bibAcc -= n; ganhar({ ciencia: n }, 'biblioteca'); aviso(`📚 A biblioteca entregou ${n} 🔬`); }
+    }
+  }
   P.regenAcc += dtH * regenHora();
   const i = Math.floor(P.regenAcc); if (i > 0) { ajustarEnergia(i); P.regenAcc -= i; }
 }
@@ -729,6 +801,7 @@ function simular(t1) {
     P.niv[P.obra.k] = P.obra.nv; darXp(XP_POR_CONSTRUCAO);
     aviso(`🔨 ${CONSTRUCOES[P.obra.k].icone} ${CONSTRUCOES[P.obra.k].nome} nível ${P.obra.nv} pronto · +${XP_POR_CONSTRUCAO} XP`);
     if (P.obra.k === 'casa' && P.obra.nv === 1) cumprir('zona');
+    if (P.obra.k === 'casa') { P.obra = null; atualizarTerritorio(); }
     P.obra = null;
   }
   // Empréstimos (Gnomos) que chegaram ao fim: a cidade paga com juros
@@ -742,6 +815,11 @@ function simular(t1) {
   // Baús comprados que chegaram
   const chegaram = P.bausAChegar.filter(x => x <= t1).length;
   if (chegaram) { P.baus += chegaram; P.bausAChegar = P.bausAChegar.filter(x => x > t1); aviso(`🧰 Chegou ${chegaram > 1 ? chegaram + ' baús' : 'o baú'} · cabem ${capMat()} materiais`); }
+  // Torres prontas: o território cresce
+  if ((P.torres || []).some(t => !t.pronta && t.fim <= t1)) {
+    for (const t of P.torres) if (!t.pronta && t.fim <= t1) { t.pronta = true; darXp(XP_POR_CONSTRUCAO); aviso(`🗼 Torre pronta · +${XP_POR_CONSTRUCAO} XP`); }
+    atualizarTerritorio();
+  }
   // Investigação terminada
   if (P.inv && P.inv.fim <= t1) {
     P.cien[P.inv.ramo] = P.inv.nivel; const R = ramosDe(P.facao)[P.inv.ramo];
@@ -798,7 +876,7 @@ function tick() {
     const dt = tempoPresente('feira:' + f.id, t);
     P.feiras[f.id] = Math.min(FEIRA.horasAnexar * HORA, (P.feiras[f.id] || 0) + dt);
     P.horasFeira = P.horasFeira || {}; P.horasFeira[f.id] = (P.horasFeira[f.id] || 0) + dt;   // 🎪 para o controlo da feira (Gnomos)
-    texto = `${FEIRA.icone} Feira · ${f.nome}` + (P.feiras[f.id] >= FEIRA.horasAnexar * HORA ? ' · podes vender' : ` · a anexar ${fmtTempo(P.feiras[f.id])} / 30 min`);
+    texto = `${FEIRA.icone} Feira · ${f.nome}` + (P.feiras[f.id] >= FEIRA.horasAnexar * HORA ? ' · podes vender' : ` · a anexar ${fmtTempo(P.feiras[f.id])} / ${Math.round(FEIRA.horasAnexar * 60)} min`);
   } else delete P.presencas['feira:' + f.id];
 
   // Casa
@@ -855,7 +933,7 @@ function atualizarHud() {
   $('hudXp').style.width = (max ? 100 : dentro / (preso ? XP_MAX_SEM_FACAO : precisa) * 100) + '%';
   const d = new Date(agora()), dia = Math.floor((agora() - P.criadoEm) / DIA) + 1;
   $('hudRelogio').innerHTML = `Dia ${dia} · ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}<br><span style="font-weight:400;color:var(--suave)">${estadoGps}</span>`;
-  $('hudEnergiaTxt').textContent = `🏛️ POIs ${meus().length}/${maxEdificiosNivel(nivel())}${P.anexando ? ' (+1 a anexar)' : ''} · ⚡ ${P.energia}/${energiaMax()} · +${Math.round(regenHora() * 10) / 10}/h · 😊 ${alegria()} · 🧱 ${totalMat()}/${capMat()} · 🍞 ${Math.floor(totalComida())}/${capComida()}`;
+  $('hudEnergiaTxt').textContent = `🏛️ POIs ${meusFora().length}/${maxEdificiosNivel(nivel())}${meus().length > meusFora().length ? ` +${meus().length - meusFora().length} 🗼` : ''}${P.anexando ? ' (+1 a anexar)' : ''} · ⚡ ${P.energia}/${energiaMax()} · +${Math.round(regenHora() * 10) / 10}/h · 😊 ${alegria()} · 🧱 ${totalMat()}/${capMat()} · 🍞 ${Math.floor(totalComida())}/${capComida()}`;
   $('hudEnergia').style.width = (P.energia / energiaMax() * 100) + '%';
   $('hudRecursos').innerHTML = REC.filter(k => k !== 'pao' || eHumano() || P.r.pao).map(k => `<span>${ic(k)} ${Math.floor(P.r[k])}</span>`).join('');
   const pend = missoesDisponiveis().length + diariasDeHoje().lista.filter(x => !x.feita).length + (bauAbertoHoje() ? 0 : 1);
@@ -893,7 +971,7 @@ const distTxt = (s, raio) => !posAtual ? '' : presente(s, raio) ? 'Estás no loc
 // ---- POI ----
 function bloqueioAnexar(p) {
   if (maxEdificiosNivel(nivel()) === 0) return 'Nível 0: chega ao nível 1 para anexar.';
-  if (meus().length >= maxEdificiosNivel(nivel())) return `Limite de POIs (${meus().length}/${maxEdificiosNivel(nivel())}) · sobe de nível`;
+  if (meusFora().length >= maxEdificiosNivel(nivel())) return `Limite de POIs (${meusFora().length}/${maxEdificiosNivel(nivel())}) · sobe de nível ou constrói torres`;
   if (P.energia <= 0 && categoriaPorId(p.cat).energiaAnexar !== 0) return 'Sem energia';
   if (P.anexando && P.anexando !== p.id) return 'Já estás a anexar outro POI';
   return '';
@@ -908,7 +986,7 @@ function reconhecer(p) {
   atualizarPin(p);
   aviso(`🔍 Reconhecimento: ${fmtRec(g)}${xp ? ' · +' + xp + ' XP' : ''}`); tick();
 }
-function recolherPoi(p, remoto) {
+function recolherPoi(p, remoto, silencioso = false) {   // silencioso: sem aviso, devolve o que se recolheu
   const c = categoriaPorId(p.cat), e = est(p.id), n = Math.floor(e.acc);
   if (!n) return;
   if (remoto) { const hoje = Math.floor(agora() / DIA); if (P.remotas.dia !== hoje) P.remotas = { dia: hoje, n: 0 }; P.remotas.n++; }
@@ -921,8 +999,19 @@ function recolherPoi(p, remoto) {
     for (const k of Object.keys(g)) if (fator(k) !== 1) {
       const v = g[k] * fator(k) + (e.resto[k] || 0); g[k] = Math.floor(v + 1e-9); e.resto[k] = v - g[k];
     } }
+  // 🏡 Lar (Humanos): os POIs do território (menos supermercados e bancos) dão +1 de cada recurso por ciclo
+  const LAR = ARVORES_FACAO.humanos.lar;
+  if (bonus().extraTerritorio && !LAR.excetoTerritorio.includes(p.cat) && noTerritorio(p)) for (const k of Object.keys(g)) g[k] += n * bonus().extraTerritorio;
   ganhar(g, p.nome); e.acc -= n; progDiaria('recolher');
+  if (silencioso) return g;
   aviso(`+ ${fmtRec(g)}`); tick();
+}
+// Em casa (todas as fações) recolhe-se de uma vez o que todos os POIs do território produziram (os bancos entregam sozinhos)
+const poisTerrProntos = () => meus().filter(p => noTerritorio(p) && Math.floor(est(p.id).acc) >= 1 && categoriaPorId(p.cat).depositaAs === undefined);
+function recolherTerritorio() {
+  const tot = {};
+  for (const p of poisTerrProntos()) for (const [k, v] of Object.entries(recolherPoi(p, false, true) || {})) tot[k] = (tot[k] || 0) + v;
+  aviso(`🏡 Recolheste do território: ${fmtRec(tot) || 'nada'}`); tick();
 }
 function remotasRestantes() {
   if (!P.niv.escritorio) return 0;
@@ -990,7 +1079,7 @@ function renderFeira() {
   const pronto = (P.feiras[f.id] || 0) >= FEIRA.horasAnexar * HORA, n = nivel();
   const hoje = Math.floor(agora() / DIA); if (P.vendas.dia !== hoje) P.vendas = { dia: hoje, ouro: 0 };
   const multVenda = 1 + bonus().vendaFeiraExtra;   // 🎪 Feirante (Gnomos)
-  let h = `<div class="bloco"><div class="r">Anexar a feira · 30 min no local</div><div class="v">${fmtTempo(P.feiras[f.id] || 0)} / 0h30</div>
+  let h = `<div class="bloco"><div class="r">Anexar a feira · ${Math.round(FEIRA.horasAnexar * 60)} min no local</div><div class="v">${fmtTempo(P.feiras[f.id] || 0)} / ${fmtTempo(FEIRA.horasAnexar * HORA)}</div>
     <div class="nota">${n < COMERCIO.nivelMinimo ? `Vender só a partir do nível ${COMERCIO.nivelMinimo}.` : pronto ? `Podes vender e comprar enquanto estiveres aqui. Vendido hoje: ${P.vendas.ouro} 🪙` : 'Fica no local (usa ⏩).'}</div></div>`;
   if (pronto && aqui && n >= COMERCIO.nivelMinimo) {
     h += '<div class="seccao">Vender</div><div class="vender">';
@@ -1094,6 +1183,44 @@ function bloqueioCao() {
   if (!temRec(req.custo)) return 'faltam recursos';
   return '';
 }
+// ---- Torres: cada uma junta um círculo ao território; constrói-se onde estás, a tocar no território ----
+const maxTorres = () => P.niv.casa ? TERRITORIO.torre.maxPorNivelCasa[Math.min(P.niv.casa, TERRITORIO.torre.maxPorNivelCasa.length) - 1] : 0;
+function bloqueioTorre() {
+  const T = TERRITORIO.torre;
+  if ((P.torres || []).length >= maxTorres()) return P.niv.casa < TERRITORIO.torre.maxPorNivelCasa.length ? 'melhora a casa para teres mais torres' : 'já tens todas as torres';
+  if (!posAtual) return 'sem GPS';
+  if (!concelhoDe(posAtual.lat, posAtual.lng, CONCELHOS)) return 'fora dos concelhos do jogo';
+  if (!circulosTerritorio().some(c => posAtual.distanceTo([c.lat, c.lng]) <= c.raio + T.raio)) return 'tens de estar a tocar no teu território';
+  if ([...circulosTerritorio(), ...(P.torres || [])].some(c => posAtual.distanceTo([c.lat, c.lng]) < 40)) return 'muito perto da casa ou de outra torre';
+  if (!temRec(T.custo)) return 'faltam recursos';
+  return '';
+}
+function construirTorre() {
+  const T = TERRITORIO.torre;
+  if (bloqueioTorre()) return;
+  pagar(T.custo);
+  (P.torres = P.torres || []).push({ lat: posAtual.lat, lng: posAtual.lng, fim: agora() + horasObra(T.horas) * HORA, pronta: false });
+  desenharCasa(); aviso(`🗼 Torre em obra · fica pronta em ${horasObra(T.horas)} h`); tick();
+}
+function htmlBonusTerritorio() {
+  const b = bonus(), linhas = [];
+  if (b.madeiraTerritorioMax) { const ha = naturezaNoTerritorio();
+    linhas.push(`🌲 Trilho: ${ha.toFixed(1)} ha de mata no território → ${Math.min(b.madeiraTerritorioMax, ha / b.haPorMadeira).toFixed(1)} 🪵 por dia (máx. ${b.madeiraTerritorioMax})`); }
+  if (b.taxaComercio) { const n = poisComercioTerr().length;
+    linhas.push(`💰 Tesouro: ${n} supermercado(s) e banco(s) teus no território → ${n * b.taxaComercio} 🪙 por dia`); }
+  if (b.extraTerritorio) linhas.push(`🏡 Lar: os POIs do território (menos supermercados e bancos) dão +${b.extraTerritorio} de cada recurso em cada recolha`);
+  return linhas.length ? `<div class="nota">${linhas.join('<br>')}</div>` : '';
+}
+function htmlTerritorio() {
+  const T = TERRITORIO.torre, noTerr = meus().filter(noTerritorio).length, b = bloqueioTorre();
+  const emObra = (P.torres || []).filter(t => !t.pronta);
+  return `<div class="seccao">🗼 Território</div>
+    <div class="bloco"><div class="r">Casa ${raioCasaTerr()} m · ${(P.torres || []).length}/${maxTorres()} torres · ${noTerr} POI(s) teus no território</div>
+      <div class="nota">Os POIs dentro do território são teus sem os anexar e não contam para o limite de POIs. Em casa recolhes de uma vez o que todos produziram.
+        O círculo da casa cresce com o nível da casa (${TERRITORIO.raioCasa.join(' / ')} m). Cada torre junta um círculo de ${T.raio} m:
+        constrói-se onde estás, a tocar no teu território.${emObra.length ? `<br>Em obra: ${emObra.map(t => fmtTempo(t.fim - agora())).join(', ')}` : ''}</div>
+      ${htmlBonusTerritorio()}<div class="acoes">${btn(`${T.icone} Construir torre aqui · ${fmtCusto(T.custo)} · ${horasObra(T.horas)} h${b ? ' · ' + b : ''}`, construirTorre, !b, 'ok')}${btn(`🏡 Recolher do território (${poisTerrProntos().length})${emCasa() ? '' : ' · só em casa'}`, recolherTerritorio, emCasa() && poisTerrProntos().length > 0)}</div></div>`;
+}
 function renderCasa() {
   if (nivel() < 3) { cab('🏠', 'Casa', 'Disponível no nível 3'); $('fCorpo').innerHTML = '<div class="nota">Chega ao nível 3 para escolher a casa.</div>'; return; }
   if (!P.casa) {
@@ -1110,8 +1237,10 @@ function renderCasa() {
   if (P.niv.casa) {
     const nv = nvDe('casa');
     h += `<div class="nota">Em casa: ${fmtRec(nv.emCasaPorHora)} por hora · alegria +${nv.alegriaEmCasa} · ${P.niv.cama ? `🛏️ 4 h seguidas = +${nvDe('cama').energiaDescanso} energia` : 'sem cama não descansas'} · ${fmtTempo(P.casaSeguidoMs)} seguidas.</div>`;
+    if (P.niv.biblioteca) h += `<div class="nota">📚 Biblioteca: ${Math.floor(P.bibAcc || 0)} 🔬 à espera · entrega sozinha às ${nvDe('biblioteca').entregaAs}h</div>`;
     const prontos = FORA.filter(k => P.niv[k]).map(k => { const n = ciclosProntos(k); return n ? `${CONSTRUCOES[k].icone} ${fmtRec(mult(nvDe(k).produz, n))}${nvDe(k).consome ? ` (gasta ${fmtRec(mult(nvDe(k).consome, n))})` : ''}` : ''; }).filter(Boolean);
     if (FORA.some(k => P.niv[k])) h += `<div class="bloco"><div class="r">Produção das construções</div><div class="v">${prontos.join(' · ') || 'nada ainda'}</div><div class="acoes">${btn('Recolher', recolherFora, emCasa() && prontos.length, 'ok')}</div></div>`;
+    h += htmlTerritorio();
     // Armazenamento
     const maxB = CONSTRUCOES.bau.maxPorNivelCasa[P.niv.casa - 1], precoB = CONSTRUCOES.bau.niveis[0].custo.ouro;
     h += `<div class="seccao">Armazenamento</div>
@@ -1223,7 +1352,7 @@ function renderPerfil() {
   const bauFeito = bauAbertoHoje();
   let h = `<div class="seccao">🎁 Baú diário</div>
     <div class="linhaItem${bauFeito ? ' feita' : ''}"><span>🎁</span><span class="t">${bauFeito ? 'Já abriste o baú de hoje' : 'Tens um baú à tua espera'}
-      <small>${bauFeito ? `Novo baú em ${fmtTempo(meiaNoite - agora())}` : `${BAU_DIARIO.quantos} recursos ao calhas`}</small></span>${bauFeito ? '' : btn('Abrir', abrirBauDiario)}</div>`;
+      <small>${bauFeito ? `${P.bauPremio ? 'Deu ' + fmtRec(P.bauPremio) + ' · ' : ''}novo baú em ${fmtTempo(meiaNoite - agora())}` : `Dá ${BAU_DIARIO.quantos} destes ao calhas, ${BAU_DIARIO.quantidade} de cada: ${BAU_DIARIO.recursos.map(k => ic(k) + ' ' + RECURSOS[k].nome).join(' · ')}`}</small></span>${bauFeito ? '' : btn('Abrir', abrirBauDiario)}</div>`;
   h += `<div class="seccao">📅 Missões diárias · novas em ${fmtTempo(meiaNoite - agora())}</div>`;
   D.lista.forEach((x, i) => {
     const m = MISSOES_DIARIAS.find(y => y.id === x.id); if (!m) return;
@@ -1238,9 +1367,10 @@ function renderPerfil() {
     const feita = !!P.missoes[m.id];
     let acao = '';
     if (!feita) {
-      if (m.tipo === 'foto') acao = btn('📸 Fotografar', () => perguntar('📸', m.titulo,
+      // Fotografia → história da fação → pergunta: só com a resposta certa fica cumprida
+      if (m.tipo === 'foto') acao = (P.fotos || {})[m.id] ? btn('📖 Responder', () => abrirHistoria(m)) : btn('📸 Fotografar', () => perguntar('📸', m.titulo,
         'Simulação: aqui a fotografia conta em qualquer sítio. No jogo real tens de estar no sítio certo (o GPS confirma).',
-        'Tirar fotografia', () => { cumprir(m.id); mostrarFacao(m.facao, m.titulo, false, m.texto); }));
+        'Tirar fotografia', () => { (P.fotos = P.fotos || {})[m.id] = true; abrirHistoria(m); }));
       if (m.tipo === 'pesquisa') acao = btn(`Pagar ${fmtCusto(m.custo)}`, () => { pagar(m.custo); cumprir(m.id); mostrarFacao(m.facao, m.titulo, true); }, temRec(m.custo));
       if (m.tipo === 'facao') {
         const livres = Object.keys(FACOES).filter(f => !Object.values(P.provas).includes(f) && provaCumprida(f));
@@ -1256,14 +1386,14 @@ function renderPerfil() {
       });
     }
     // missões de conhecer as fações já feitas: pode rever-se o que mostraram
-    if (feita && (m.tipo === 'foto' || m.tipo === 'pesquisa')) acao = btn('Ver', () => mostrarFacao(m.facao, m.titulo, m.tipo === 'pesquisa', m.tipo === 'foto' ? m.texto : ''));
+    if (feita && (m.tipo === 'foto' || m.tipo === 'pesquisa')) acao = btn('Ver', () => mostrarFacao(m.facao, m.titulo, m.tipo === 'pesquisa', m.tipo === 'foto' ? htmlHistoria(m) + m.texto : ''));
     const extra = m.tipo === 'facao' ? (P.provas[m.id] ? ` · ${FACOES[P.provas[m.id]].nome}` : '<small>' + Object.entries(PROVAS_FACAO).filter(([f]) => !Object.values(P.provas).includes(f)).map(([f, pr]) => `${FACOES[f].icone} ${pr.texto}`).join('<br>') + '</small>') : '';
     h += `<div class="linhaItem${feita ? ' feita' : ''}"><span>${feita ? '✅' : '⬜'}</span><span class="t">${m.titulo}${extra}${m.texto && m.tipo !== 'foto' && m.tipo !== 'pesquisa' ? `<small>${m.texto}</small>` : ''}</span>
       <span class="xp">${m.xp ? '+' + m.xp + ' XP' : ''}${m.recursos ? ' ' + fmtRec(m.recursos) : ''}</span>${acao}</div>`;
   }
   h += `<div class="seccao">Atributos</div><div class="stats">
     <div class="stat"><div class="v">${P.energia}/${energiaMax()}</div><div class="r">⚡ Energia</div></div>
-    <div class="stat"><div class="v">${meus().length}/${maxEdificiosNivel(n)}</div><div class="r">🏛️ POIs anexados</div></div>
+    <div class="stat"><div class="v">${meusFora().length}/${maxEdificiosNivel(n)}${meus().length > meusFora().length ? ` +${meus().length - meusFora().length} 🗼` : ''}</div><div class="r">🏛️ POIs anexados (+ no território)</div></div>
     <div class="stat"><div class="v">${fmtDist(P.distancia)}</div><div class="r">👣 Distância</div></div>
     <div class="stat"><div class="v">${POIS.filter(p => est(p.id).recon).length}</div><div class="r">🔍 Reconhecimentos</div></div></div>
     <div class="nota">${P.consumo.proximo ? `Próximo consumo (${fmtRec(consumoDia())}) em ${fmtTempo(P.consumo.proximo - agora())}${P.consumo.diasFome ? ` · ⚠️ ${P.consumo.diasFome} dia(s) sem comida` : ''}` : `Consumo diário a partir do nível ${NIVEL_CONSUMO}.`}</div>
@@ -1280,6 +1410,23 @@ function perguntar(icone, titulo, texto, simTxt, fn, voltar = 'perfil') {   // v
   aberto = 'pergunta'; $('folha').classList.remove('escondido');
 }
 // Conhecer uma fação: o que tem de bom e de mau e (no estudo) os 2 primeiros níveis de cada ramo da árvore
+// ---- História de cada fação (missões de fotografia do nível 5) ----
+const htmlHistoria = m => !m.historia ? '' : `<div class="bloco"><div class="r">📖 A história dos ${FACOES[m.facao].nome}</div>
+  ${m.historia.map(p => `<p class="nota" style="font-size:14px;line-height:1.55;margin:8px 0">${p}</p>`).join('')}</div>`;
+function abrirHistoria(m) {
+  if (!m.historia) { cumprir(m.id); mostrarFacao(m.facao, m.titulo, false, m.texto); return; }
+  const F = FACOES[m.facao], Q = m.pergunta;
+  cab(F.icone, m.titulo, `${F.nome} · lê a história e responde à pergunta`);
+  const ordem = Q.opcoes.map((_, i) => i).sort(() => Math.random() - .5);   // baralha as respostas
+  const responder = i => () => {
+    if (i === Q.certa) { cumprir(m.id); mostrarFacao(m.facao, m.titulo, false, `<div class="nota" style="font-size:14px">✅ Certo!</div>` + m.texto); return; }
+    aviso('❌ Resposta errada · lê outra vez a história e tenta de novo', true); abrirHistoria(m);
+  };
+  $('fCorpo').innerHTML = htmlHistoria(m) + `<div class="bloco"><div class="r">❓ ${Q.texto}</div>
+    <div class="acoes" style="flex-direction:column;gap:8px;margin-top:10px">${ordem.map(i => btn(Q.opcoes[i], responder(i))).join('')}</div></div>
+    <div class="acoes">${btn('Responder mais tarde', () => abrir('perfil'))}</div>`;
+  aberto = 'mensagem'; $('folha').classList.remove('escondido');
+}
 function mostrarFacao(f, titulo, comArvore, intro = '') {
   const F = FACOES[f];
   cab(F.icone, titulo, `${F.nome} · ${F.lema}`);
@@ -1393,7 +1540,7 @@ function iniciarJogo() {
   const lim = desenharFronteiras();
   mapa.setMaxBounds(lim.pad(.15));
   mapa.setView(P.pos, 15);
-  desenharNatureza(); desenharPois(); desenharCasa(); desenharEsconderijos(); desenharPercurso();
+  desenharNatureza(); desenharPois(); desenharCasa(); atualizarTerritorio(); desenharEsconderijos(); desenharPercurso();
   if (PEDIU_TESTE) ativarModoTeste('Modo de teste'); else iniciarGps();
   setInterval(tick, 1000);
   // manter o ecrã ligado enquanto o jogo está aberto (se o telemóvel deixar)

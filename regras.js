@@ -83,29 +83,52 @@ const MISSOES = [
 
   // ---- Conhecer as fações (nível 5 a 9) → escolha no nível 10 ----
   // Nível 5: três missões de fotografia, uma por fação. Vai-se a um sítio que represente a fação,
-  // tira-se uma fotografia (tem de estar lá pelo GPS) e recebe-se XP, ouro e a explicação da fação.
+  // tira-se uma fotografia (tem de estar lá pelo GPS), lê-se a HISTÓRIA da fação e responde-se a uma pergunta
+  // sobre ela: a missão só fica cumprida com a resposta certa (pode-se tentar outra vez, sem nova fotografia).
+  // `certa` = índice da resposta certa em `opcoes` (o jogo baralha a ordem).
   // Sítios públicos: a fotografia tira-se de fora (estrada, caminho), nunca entrando em propriedade privada.
   { id: 'fotoElfos',   nivel: 5, facao: 'elfos',   tipo: 'foto', xp: 30, recursos: { ouro: 20 },   // ⚠️ recompensa proposta
     titulo: 'Fotografar um pinhal, bosque ou parque',
     local: t => t.natural === 'wood' || t.landuse === 'forest' || (t.leisure === 'park' && !!t.name),
-    texto: 'Os Elfos vivem da natureza.' },   // o jogo junta o bom e o mau da fação (FACOES em construcoes.js)
+    texto: 'Os Elfos vivem da natureza.',   // o jogo junta o bom e o mau da fação (FACOES em construcoes.js)
+    historia: [
+      'Antes das estradas e das cidades, as matas cobriam a terra da serra até ao mar. Os Elfos foram os primeiros a viver nelas e aprenderam a ouvir o vento nos pinheiros como quem lê um livro.',
+      'Quando os pinhais começaram a ser cortados para fazer barcos e casas, os Elfos recolheram-se aos bosques que ficaram: as serras, as tapadas, os parques. Desde então guardam-nos e marcam os seus caminhos com bandeiras verdes.',
+      'Um Elfo nunca corta uma árvore viva. A madeira que usa é a que a mata lhe oferece: ramos caídos que encontra pelo caminho. Por isso os Elfos andam muito e comem pouco. Para eles, cada monumento antigo é um guardião de pedra, e protegê-lo é uma honra.',
+    ],
+    pergunta: { texto: 'Que madeira usam os Elfos?', certa: 0,
+      opcoes: ['Os ramos caídos que encontram a caminhar pela mata', 'As árvores que cortam nas tapadas', 'A madeira que compram aos Gnomos na feira'] } },
   { id: 'fotoGnomos',  nivel: 5, facao: 'gnomos',  tipo: 'foto', xp: 30, recursos: { ouro: 20 },
     titulo: 'Fotografar um centro comercial',
     local: t => t.shop === 'mall',
-    texto: 'Os Gnomos vivem do comércio e do ouro.' },
+    texto: 'Os Gnomos vivem do comércio e do ouro.',
+    historia: [
+      'Os Gnomos foram os primeiros a perceber que uma moeda vale mais a andar do que parada. Começaram por trocar cogumelos por fivelas nas feiras das aldeias, e ao fim de uma geração já emprestavam dinheiro a quem as organizava.',
+      'Fundaram os primeiros bancos em caves frescas, debaixo das lojas, e cada Gnomo guarda um livro de contas desde o dia em que nasce. Não gostam de carregar pedra nem ferro: o que se pode pagar com ouro não se carrega às costas.',
+      'Entre eles há um ditado antigo: "quem controla a feira controla a vila". E há quem diga, em voz baixa, que alguns Gnomos pagam a ladrões para fazerem o trabalho que eles não querem fazer.',
+    ],
+    pergunta: { texto: 'Segundo o ditado dos Gnomos, quem controla a feira…', certa: 0,
+      opcoes: ['…controla a vila', '…perde todo o ouro', '…tem de pagar aos Elfos'] } },
   { id: 'fotoHumanos', nivel: 5, facao: 'humanos', tipo: 'foto', xp: 30, recursos: { ouro: 20 },
     titulo: 'Fotografar um moinho ou uma quinta',
     // moinhos (há mais de 200 na zona, muitos visitáveis) · quintas com nome · campos, pomares, vinhas
     local: t => t.man_made === 'windmill' || (t.place === 'farm' && !!t.name) || ['farmland', 'orchard', 'vineyard'].includes(t.landuse),
-    texto: 'Os Humanos vivem da agricultura e da produção.' },
+    texto: 'Os Humanos vivem da agricultura e da produção.',
+    historia: [
+      'Os Humanos chegaram depois dos Elfos. Não sabiam ouvir as árvores, mas sabiam outra coisa: lavrar a terra. Abriram campos onde havia mato, plantaram vinhas nas encostas e ergueram moinhos de vento no alto das colinas.',
+      'Diz-se que onde um Humano se instala nasce uma quinta, onde há quinta nasce um moinho, e onde há moinho há pão. Com o tempo vieram as pedreiras, as serrações e as serralharias, e as aldeias encheram-se de oficinas.',
+      'Os Humanos não têm a paciência dos Elfos nem a esperteza dos Gnomos, mas têm braços e teimosia: trabalham por turnos, constroem mais depressa do que ninguém e deixam sempre um cão de guarda à porta.',
+    ],
+    pergunta: { texto: 'Segundo a história dos Humanos, onde há moinho há…', certa: 0,
+      opcoes: ['…pão', '…ouro', '…floresta'] } },
 
-  // Nível 6: pagar OURO para estudar cada fação (uma pesquisa por fação, 150 de ouro cada).
+  // Nível 6: estudar cada fação. Cada estudo paga-se com o recurso dessa fação e devolve o DOBRO no fim (+30 XP).
   // Mostra os 2 primeiros níveis de cada ramo da árvore de ciência dessa fação (a partir do nível 11), e o bom e o mau.
-  { id: 'estudarElfos',   nivel: 6, facao: 'elfos',   tipo: 'pesquisa', custo: { ouro: 150 }, xp: 30,   // ⚠️ XP proposto
+  { id: 'estudarElfos',   nivel: 6, facao: 'elfos',   tipo: 'pesquisa', custo: { madeira: 4 }, recursos: { madeira: 8 }, xp: 30,
     titulo: 'Estudar os Elfos',   texto: 'Mostra os primeiros níveis da árvore de ciência dos Elfos.' },
-  { id: 'estudarGnomos',  nivel: 6, facao: 'gnomos',  tipo: 'pesquisa', custo: { ouro: 150 }, xp: 30,
+  { id: 'estudarGnomos',  nivel: 6, facao: 'gnomos',  tipo: 'pesquisa', custo: { ouro: 60 }, recursos: { ouro: 120 }, xp: 30,
     titulo: 'Estudar os Gnomos',  texto: 'Mostra os primeiros níveis da árvore de ciência dos Gnomos.' },
-  { id: 'estudarHumanos', nivel: 6, facao: 'humanos', tipo: 'pesquisa', custo: { ouro: 150 }, xp: 30,
+  { id: 'estudarHumanos', nivel: 6, facao: 'humanos', tipo: 'pesquisa', custo: { pedra: 2, ferro: 2, madeira: 2 }, recursos: { pedra: 4, ferro: 4, madeira: 4 }, xp: 30,
     titulo: 'Estudar os Humanos', texto: 'Mostra os primeiros níveis da árvore de ciência dos Humanos.' },
 
   // Níveis 7, 8 e 9: em cada nível escolhe UMA fação ainda não feita e cumpre uma de duas coisas:

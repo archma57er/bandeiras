@@ -51,6 +51,20 @@ const ARMAZENAMENTO = {
   casa: { materiais: 50, comida: 50 },
 };
 
+// ---- Território ------------------------------------------------------------
+// O círculo da casa cresce com o NÍVEL DA CASA. As torres juntam círculos novos ao território.
+// Todos os POIs dentro do território ficam do jogador sozinhos (sem os anexar)
+// e NÃO contam para o limite de POIs do nível (esse limite é só para os que se anexam fora).
+// A torre constrói-se onde o jogador está, a tocar no território que já tem (casa ou torre pronta).
+const TERRITORIO = {
+  raioCasa: [50, 100, 150],                    // metros, por nível da casa (1, 2, 3)
+  torre: {
+    nome: 'Torre', icone: '🗼', raio: 75,      // círculo de cada torre
+    maxPorNivelCasa: [1, 2, 4],                // quantas torres se podem ter com a casa no nível 1, 2, 3
+    custo: { ouro: 20, pedra: 8, madeira: 8, ferro: 2 }, horas: 4,
+  },
+};
+
 // ---- Roubo ---------------------------------------------------------------
 // 1. O ladrão vai à casa do outro jogador (a menos de 50 m) e fica lá 1 minuto.
 // 2. Escolhe ÀS CEGAS UMA SÓ coisa: o OURO, OU um dos baús, OU o frigorífico (não vê o que têm dentro).
@@ -188,9 +202,16 @@ const CONSTRUCOES = {
     nome: 'Escritório', icone: '🗄️', tipo: 'dentro',
     descricao: 'Recolher a produção dos POIs anexados a partir de casa, sem lá ir (algumas vezes por dia).',
     niveis: [
-      // custo reduzido para metade: o escritório é para se ter cedo
-      { nivelCasa: 1, custo: { ouro: 190, madeira: 20, ferro: 10, pedra: 8 }, horas: 24, recolhasRemotasDia: 2 },
-      { nivelCasa: 3, custo: { ouro: 500, madeira: 40, ferro: 20, pedra: 20 }, horas: 60, recolhasRemotasDia: 4 },
+      // sem ouro: o escritório é para se ter cedo (o ouro custa a juntar no início)
+      { nivelCasa: 1, custo: { madeira: 20, ferro: 10, pedra: 8 }, horas: 24, recolhasRemotasDia: 2 },
+      { nivelCasa: 3, custo: { madeira: 40, ferro: 20, pedra: 20 }, horas: 60, recolhasRemotasDia: 4 },
+    ],
+  },
+  biblioteca: {
+    nome: 'Biblioteca', icone: '📚', tipo: 'dentro',
+    descricao: 'Produz 1 de ciência por hora e entrega-a sozinha às 17h de cada dia (não é preciso estar em casa).',
+    niveis: [
+      { nivelCasa: 1, custo: { madeira: 15, pedra: 10, ferro: 5 }, horas: 12, cienciaPorHora: 1, entregaAs: 17 },
     ],
   },
 
