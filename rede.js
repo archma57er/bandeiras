@@ -24,18 +24,14 @@ function redeCliente() {
 }
 const euId = () => R.eu && R.eu.id;
 
-// ---- Contas: email com código de 6 dígitos (só para quem foi convidado) ----
+// ---- Contas: email e palavra-passe (as contas são criadas no Supabase, só para quem foi convidado) ----
 async function redeSessao() {
   const { data } = await redeCliente().auth.getSession();
   R.eu = data.session ? data.session.user : null;
   return R.eu;
 }
-async function redePedirCodigo(email) {
-  const { error } = await redeCliente().auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
-  if (error) throw error;
-}
-async function redeConfirmarCodigo(email, codigo) {
-  const { data, error } = await redeCliente().auth.verifyOtp({ email, token: codigo, type: 'email' });
+async function redeEntrar(email, password) {
+  const { data, error } = await redeCliente().auth.signInWithPassword({ email, password });
   if (error) throw error;
   R.eu = data.user; return R.eu;
 }

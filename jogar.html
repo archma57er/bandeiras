@@ -30,7 +30,7 @@
   h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: 1px; text-transform: uppercase; color: var(--acento); }
   .sub { margin: 0 0 20px; color: var(--suave); font-size: 14px; }
   label.titulo { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--suave); margin: 18px 0 8px; }
-  input[type=text], input[type=email] { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--borda); background: var(--painel2); color: var(--texto); font-size: 16px; }
+  input[type=text], input[type=email], input[type=password] { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--borda); background: var(--painel2); color: var(--texto); font-size: 16px; }
   .grelha { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
   .opcao { aspect-ratio: 1; border-radius: 12px; border: 2px solid var(--borda); background: var(--painel2); font-size: 26px;
     display: flex; align-items: center; justify-content: center; padding: 0; }
@@ -138,13 +138,10 @@
     <img class="logotipo" src="logotipo.png" alt="Bandeiras · Explora · Reconhece · Anexa">
     <p class="sub">Jogo completo (teste) · Grande Lisboa, Península de Setúbal, Oeste até às Caldas da Rainha (Torres Vedras, Lourinhã, Peniche, Óbidos, Bombarral, Cadaval, Alenquer, Arruda, Sobral) e Azambuja · Évora, Aveiro, Ílhavo, Leiria e Kildare (Irlanda). Começas no nível 0: explora, reconhece e anexa sítios reais. Aceita o pedido de localização.</p>
     <div id="online" class="escondido">
-      <label class="titulo">🌐 Jogo online · entra com o teu email</label>
-      <input id="email" type="email" placeholder="o.teu@email.pt" autocomplete="email">
-      <button class="principal" id="pedirCodigo">Enviar código</button>
-      <div id="passoCodigo" class="escondido">
-        <input id="codigo" type="text" inputmode="numeric" maxlength="8" placeholder="Código que recebeste no email" autocomplete="one-time-code">
-        <button class="principal" id="confirmarCodigo">Entrar</button>
-      </div>
+      <label class="titulo">🌐 Jogo online · entra na tua conta</label>
+      <input id="email" type="email" placeholder="Email" autocomplete="username">
+      <input id="pass" type="password" placeholder="Palavra-passe" autocomplete="current-password">
+      <button class="principal" id="entrarConta">Entrar</button>
       <div class="erro" id="estadoOnline" style="color:var(--suave)"></div>
     </div>
     <div id="personagem">
@@ -1706,7 +1703,7 @@ function iniciarJogo() {
   setTimeout(() => mapa.invalidateSize(), 50);
 }
 const mostrarCriacao = () => { $('criacao').classList.remove('escondido'); pintarAvatar($('novoAvatar'), rasc); $('novoNome').textContent = rasc.nome; };
-// 🌐 Online: entrar com email e código; o jogo vem do servidor (se ainda não houver, cria-se a personagem)
+// 🌐 Online: entrar com email e palavra-passe; o jogo vem do servidor (se ainda não houver, cria-se a personagem)
 async function arrancarOnline() {
   $('criacao').classList.remove('escondido'); $('personagem').classList.add('escondido'); $('online').classList.remove('escondido');
   const st = t => { $('estadoOnline').textContent = t; };
@@ -1721,17 +1718,16 @@ async function arrancarOnline() {
     } catch (err) { st('Erro a carregar o jogo: ' + err.message); }
   };
   if (await redeSessao()) return depoisDeEntrar();
-  $('pedirCodigo').onclick = async () => {
-    const email = $('email').value.trim(); if (!email.includes('@')) return st('Escreve o teu email.');
-    st('A enviar o código…');
-    try { await redePedirCodigo(email); $('passoCodigo').classList.remove('escondido'); st(`Enviámos um código para ${email}. Escreve-o aqui (vê também o spam).`); }
-    catch (err) { st(/signup|not allowed|not found/i.test(err.message) ? 'Este email não está convidado para o teste.' : 'Erro: ' + err.message); }
+  const entrar = async () => {
+    const email = $('email').value.trim(), pass = $('pass').value;
+    if (!email.includes('@')) return st('Escreve o teu email.');
+    if (!pass) return st('Escreve a tua palavra-passe.');
+    st('A entrar…');
+    try { await redeEntrar(email, pass); depoisDeEntrar(); }
+    catch (err) { st(/invalid login|credentials/i.test(err.message) ? 'Email ou palavra-passe errados.' : /not confirmed/i.test(err.message) ? 'Esta conta ainda não está confirmada no Supabase.' : 'Erro: ' + err.message); }
   };
-  $('confirmarCodigo').onclick = async () => {
-    st('A confirmar…');
-    try { await redeConfirmarCodigo($('email').value.trim(), $('codigo').value.trim()); depoisDeEntrar(); }
-    catch (err) { st('Código errado ou fora de prazo. Pede outro.'); }
-  };
+  $('entrarConta').onclick = entrar;
+  $('pass').onkeydown = ev => { if (ev.key === 'Enter') entrar(); };
 }
 if (ONLINE) arrancarOnline(); else if (P) iniciarJogo(); else mostrarCriacao();
 // Service worker: necessário para o telemóvel oferecer "Instalar app"
