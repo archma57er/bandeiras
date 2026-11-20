@@ -11,6 +11,7 @@ const RECURSOS = {
   madeira: { nome: 'madeira', icone: '🪵' },
   ciencia: { nome: 'ciência', icone: '🔬' },
   pao:     { nome: 'pão',     icone: '🥖' },   // só Humanos (moinho): conta no espaço da comida
+  peixe:   { nome: 'peixe',   icone: '🐟' },   // só clãs de Elfos e de Humanos (POIs de costa): conta no espaço da comida
 };
 
 // Quantos POIs de cada categoria há por concelho (as que não aparecem aqui não têm limite).
@@ -23,6 +24,7 @@ const LIMITES_POR_CONCELHO = {
   ferragens: 3,
   escola: 10,
   biblioteca: 10,
+  costa: 25,   // 🎣 POIs de pesca (praias, portos, marinas)
 };
 
 // Monumentos maiores do que isto (diagonal, em metros) são "monumentos grandes":
@@ -124,6 +126,14 @@ const CATEGORIAS = [
     id: 'ferragens', nome: 'Loja de ferragens / bricolage', icone: '🛠️', cor: '#5f6b3a',
     horasAnexar: 4, cicloHoras: 2, produz: { ferro: 1, madeira: 1 }, maxCiclos: 2,
     teste: t => t.shop === 'hardware' || t.shop === 'doityourself',
+  },
+  {
+    // 🎣 Pesca junto à costa (praias, portos e marinas · dados/costa.js): só para clãs de Elfos ou de Humanos
+    // (tipo "só da fação") com pelo menos 500 pontos do clã. Os outros veem o POI mas não o podem anexar.
+    id: 'costa', nome: 'Praia / porto (pesca)', icone: '🎣', cor: '#1f6fb2',
+    horasAnexar: 2, cicloHoras: 2, produz: { peixe: 1 }, maxCiclos: 6,
+    soClas: ['elfos', 'humanos'], pontosCla: 500,
+    teste: t => t.natural === 'beach' || t.leisure === 'marina' || t.landuse === 'harbour' || t.harbour === 'yes',
   },
 ];
 
@@ -256,7 +266,7 @@ function construirPois(osm, manuais, excluidos, concelhos) {
     if (excluidos[el.id]) continue;
     const cat = classificar(el);
     if (!cat) continue;
-    if (cat !== 'monumento-grande' && el.tam > TAMANHO_GRANDE_M) continue;   // áreas enormes que não são monumentos
+    if (cat !== 'monumento-grande' && cat !== 'costa' && el.tam > TAMANHO_GRANDE_M) continue;   // áreas enormes que não são monumentos (praias compridas contam)
     const nome = el.t.name || categoriaPorId(cat).nome;
     // o mesmo sítio desenhado como ponto e como edifício (mesmo nome, < 80 m)
     if (todos.some(p => p.cat === cat && p.nome.toLowerCase() === nome.toLowerCase() && distanciaM(p.lat, p.lng, el.lat, el.lng) < 80)) continue;

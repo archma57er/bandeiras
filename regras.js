@@ -202,7 +202,7 @@ function premioReconhecimento(nivel, extra) {
 const COMERCIO = {
   nivelMinimo: 3,
   // Quanto ouro se RECEBE por 1 unidade vendida: 4 comida = 1 ouro · 1 pedra/ferro/madeira = 4 ouro
-  precoVenda: { comida: 0.25, pedra: 4, ferro: 4, madeira: 4, pao: 2 },   // 🥖 pão (Humanos): 2 ouro
+  precoVenda: { comida: 0.25, pedra: 4, ferro: 4, madeira: 4, pao: 2, peixe: 1 },   // 🥖 pão (Humanos): 2 ouro · 🐟 peixe: 1 ouro
   // Quanto ouro se PAGA por 1 unidade comprada: 1 comida = 4 ouro · 1 pedra/ferro/madeira = 20 ouro
   precoCompra: { comida: 4, pedra: 20, ferro: 20, madeira: 20 },
   limiteOuroDia: Infinity,    // sem limite de vendas por dia (nem de compras)

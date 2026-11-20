@@ -228,7 +228,7 @@ function resumoArvore(facao, ateNivel = 2) {
 
 // Esconderijos: só se criam numa mata/pinhal/parque. Outro jogador encontra-o se ficar ESCONDERIJO.minutos a menos de ESCONDERIJO.raioM
 // (aparece-lhe um pontinho a dizer que há lá qualquer coisa); aí pode roubar o que lá estiver. O dono vai buscar a menos de 30 m.
-const ESCONDERIJO = { raioM: 50, minutos: 5, raioDonoM: 30, guarda: ['comida', 'pao', 'pedra', 'ferro', 'madeira'] };
+const ESCONDERIJO = { raioM: 50, minutos: 5, raioDonoM: 30, guarda: ['comida', 'pao', 'peixe', 'pedra', 'ferro', 'madeira'] };
 
 // Ramos que um jogador pode investigar (os básicos + os da sua fação)
 const ramosDe = facao => ({ ...RAMOS_CIENCIA, ...(ARVORES_FACAO[facao] || {}) });

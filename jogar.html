@@ -135,7 +135,7 @@
 <section id="criacao" class="escondido">
   <div class="cartao">
     <img class="logotipo" src="logotipo.png" alt="Bandeiras · Explora · Reconhece · Anexa">
-    <p class="sub">Jogo completo (teste) · Sintra, Mafra, Torres Vedras, Loures, Lisboa, Almada, Évora, Aveiro, Ílhavo, Leiria e Kildare (Irlanda). Começas no nível 0: explora, reconhece e anexa sítios reais. Aceita o pedido de localização.</p>
+    <p class="sub">Jogo completo (teste) · Grande Lisboa, Península de Setúbal, Oeste até às Caldas da Rainha (Torres Vedras, Lourinhã, Peniche, Óbidos, Bombarral, Cadaval, Alenquer, Arruda, Sobral) e Azambuja · Évora, Aveiro, Ílhavo, Leiria e Kildare (Irlanda). Começas no nível 0: explora, reconhece e anexa sítios reais. Aceita o pedido de localização.</p>
     <label class="titulo">A tua personagem</label>
     <div style="display:flex;align-items:center;gap:12px;margin:6px 0 4px">
       <div class="avatar" id="novoAvatar"></div><div class="nomeprev" id="novoNome"></div>
@@ -200,6 +200,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="dados/concelhos.js"></script>
 <script src="dados/osm-pois.js"></script>
+<script src="dados/costa.js"></script>
 <script src="dados/pois-manuais.js"></script>
 <script src="dados/natureza.js"></script>
 <script src="categorias.js"></script>
@@ -228,12 +229,12 @@ const PEDIU_TESTE = URLP.has('teste');
 const CHAVE = 'bandeiras.jogo.j' + (URLP.get('j') || '1') + (PEDIU_TESTE ? '.teste' : '');
 const PRECISAO_MAXIMA = 40;          // GPS pior que ±40 m não conta para estar num sítio
 let modoTeste = false, precisaoAtual = 0;
-const REC = ['ouro', 'comida', 'pao', 'pedra', 'ferro', 'madeira', 'ciencia'];
+const REC = ['ouro', 'comida', 'pao', 'peixe', 'pedra', 'ferro', 'madeira', 'ciencia'];
 const MAT = ARMAZENAMENTO.materiais;
 const FORA = ['fabricaPedra', 'serracao', 'serralharia', 'quinta', 'moinho'];
 const DENTRO = ['cama', 'sofa', 'escritorio', 'biblioteca'];
 
-const POIS = construirPois(OSM_POIS, POIS_MANUAIS, POIS_EXCLUIDOS, CONCELHOS);
+const POIS = construirPois([...OSM_POIS, ...(typeof OSM_COSTA !== 'undefined' ? OSM_COSTA : [])], POIS_MANUAIS, POIS_EXCLUIDOS, CONCELHOS);   // 🎣 + costa
 const CAND_FEIRA = candidatosFeira(OSM_POIS, CONCELHOS);
 
 // ---------------------------------------------------------------------
@@ -264,10 +265,11 @@ const nivel = () => progressoNivel(P.xp).n;
 const est = id => P.pois[id] || (P.pois[id] = { ms: 0, dono: false, acc: 0 });
 const meus = () => POIS.filter(p => est(p.id).dono);
 // ---- Território: círculo da casa (cresce com o nível da casa) + círculos das torres prontas ----
-const raioCasaTerr = () => P.niv.casa ? TERRITORIO.raioCasa[Math.min(P.niv.casa, TERRITORIO.raioCasa.length) - 1] : 0;
+const fatorRaioTerr = () => 1 + (bonus().raioTerritorio || 0);   // 🏰 clã de Elfos: território 20% maior
+const raioCasaTerr = () => P.niv.casa ? TERRITORIO.raioCasa[Math.min(P.niv.casa, TERRITORIO.raioCasa.length) - 1] * fatorRaioTerr() : 0;
 const torresProntas = () => (P.torres || []).filter(t => t.pronta);
 const circulosTerritorio = () => !P.casa || !P.niv.casa ? [] : [{ lat: P.casa.lat, lng: P.casa.lng, raio: raioCasaTerr() },
-  ...torresProntas().map(t => ({ lat: t.lat, lng: t.lng, raio: TERRITORIO.torre.raio }))];
+  ...torresProntas().map(t => ({ lat: t.lat, lng: t.lng, raio: TERRITORIO.torre.raio * fatorRaioTerr() }))];
 const noTerritorio = p => circulosTerritorio().some(c => L.latLng(c.lat, c.lng).distanceTo([p.lat, p.lng]) <= c.raio);
 const meusFora = () => meus().filter(p => !noTerritorio(p));   // só estes contam para o limite de POIs do nível
 // Hectares de natureza dentro do território (pontos numa grelha de 20 m; guarda-se enquanto o território não muda)
@@ -295,6 +297,8 @@ function ganhosTerritorioDia() {
   const b = bonus(), g = {};
   if (b.madeiraTerritorioMax) { const m = Math.min(b.madeiraTerritorioMax, naturezaNoTerritorio() / b.haPorMadeira); if (m > 0.01) g.madeira = m; }
   if (b.taxaComercio) { const n = poisComercioTerr().length; if (n) g.ouro = n * b.taxaComercio; }
+  if (g.madeira && b.madeiraTerritorio) g.madeira *= 1 + b.madeiraTerritorio;   // 🏰 clã de Elfos: +50%
+  const fA = fatorAlegria(); for (const k of Object.keys(g)) g[k] *= fA;          // 😊 alegria
   return g;
 }
 // Os POIs que entram no território passam a ser do jogador sozinhos
@@ -314,15 +318,37 @@ const casaNv = k => k === 'casa' ? P.niv.casa : P.niv[k] || 0;
 const nvDe = k => CONSTRUCOES[k].niveis[casaNv(k) - 1];
 const emCasa = () => !!(P.casa && P.niv.casa && presente(P.casa, RAIO_CASA));
 const capMat = () => ARMAZENAMENTO.mochila.materiais + (P.niv.casa ? ARMAZENAMENTO.casa.materiais : 0) + P.baus * CONSTRUCOES.bau.niveis[0].capacidade;
-const bonus = () => bonusCiencia(P.cien);
+const bonus = () => {   // ciência + 🏰 bónus do clã (só com a manutenção da sede paga)
+  const b = bonusCiencia(P.cien);
+  if (claAtivo()) for (const [k, v] of Object.entries(bonusClaInfo().efeitos)) b[k] = (b[k] || 0) + v;
+  return b;
+};
 // 🏡 Celeiro (Humanos): o frigorífico guarda mais
 const capFrigorifico = () => P.niv.frigorifico ? Math.floor(nvDe('frigorifico').capacidade * (1 + bonus().frigorificoExtra)) : 0;
 const capComida = () => ARMAZENAMENTO.mochila.comida + (P.niv.casa ? ARMAZENAMENTO.casa.comida : 0) + capFrigorifico();
-const totalComida = () => P.r.comida + (P.r.pao || 0);   // o pão ocupa 1 lugar no espaço da comida
+const totalComida = () => P.r.comida + (P.r.pao || 0) + (P.r.peixe || 0);   // o pão e o peixe ocupam 1 lugar cada no espaço da comida
 const totalMat = () => MAT.reduce((t, k) => t + P.r[k], 0);
 const espacosFora = () => nvDe('casa').espacosFora + bonus().espacosForaExtra;
 const maxHorasFora = k => nvDe(k).maxHoras + bonus().horasProducaoExtra;   // 🏡 Turnos
-const minPorEnergiaAnexar = () => 30 / (1 - bonus().energiaAnexar);         // 🥾 Resistência
+// 🚩 Bandeira: em casa (por omissão) ou contigo
+const bandeiraComigo = () => !!P.niv.bandeira && P.bandeira === 'comigo';
+const bandeiraEmCasa = () => !!P.niv.bandeira && P.bandeira !== 'comigo';
+const fatorEnergia = () => bandeiraComigo() ? CONSTRUCOES.bandeira.comigo.energia : 1;   // 🚩 contigo: metade da energia
+// 🏰 Clã: o tipo escolhido dá bónus enquanto não houver manutenção por pagar
+const claAtivo = () => !!(P.niv.sede && P.cla && P.cla.tipo && !P.cla.divida);
+const bonusClaInfo = () => P.cla && P.cla.tipo ? CONSTRUCOES.sede.bonus[P.cla.tipo === 'multi' ? 'multi' : P.cla.facao] : null;
+const claDaFacao = f => !!(P.niv.sede && P.cla && P.cla.tipo === 'facao' && P.cla.facao === f);
+const pontosCla = () => Math.floor((P.cla && P.cla.pontos) || 0);
+// 🎣 Pesca: só clãs de Elfos ou de Humanos com os pontos do clã necessários
+const podePescar = () => { const C = categoriaPorId('costa'); return C.soClas.some(claDaFacao) && pontosCla() >= C.pontosCla; };
+function pagarDividaCla() {   // paga a manutenção em atraso, se houver ouro que chegue
+  const C = P.cla; if (!C || !C.divida) return true;
+  if (P.r.ouro < C.divida) { C.emDivida = true; return false; }
+  P.r.ouro -= C.divida; C.divida = 0; C.emDivida = false; return true;
+}
+// 😊 Alegria: cada ponto (positivo) dá +10% de produção, no momento
+const fatorAlegria = () => 1 + Math.max(0, alegria()) * ALEGRIA_PRODUCAO;
+const minPorEnergiaAnexar = () => 30 / (1 - bonus().energiaAnexar) / fatorEnergia();     // 🥾 Resistência · 🚩 Bandeira
 const horasObra = h => Math.round(h * (1 - bonus().tempoObra) * 10) / 10;   // 🥾 Mão-de-obra
 const eHumano = () => P.facao === 'humanos';
 const eElfo = () => P.facao === 'elfos';
@@ -399,13 +425,19 @@ function elfosAndar(d, ll, emPausa = false) {   // emPausa: caminho feito com o 
     const n = Math.floor(P.mNatureza / b.metrosPorMadeira);
     if (n) { P.mNatureza -= n * b.metrosPorMadeira; ganhar({ madeira: n }, 'trilho'); aviso(`🌲 +${n} 🪵 a andar na natureza`); }
   }
-}
+  if (b.madeiraKmNatureza && !emPausa && naNatureza(ll.lat, ll.lng)) {   // 🏰 clã de Elfos: +1 🪵 por km na natureza
+    P.mNatCla = (P.mNatCla || 0) + d;
+    const n = Math.floor(P.mNatCla / 1000);
+    if (n) { P.mNatCla -= n * 1000; ganhar({ madeira: n * b.madeiraKmNatureza }, 'clã'); aviso(`🏰🌲 +${n * b.madeiraKmNatureza} 🪵 · clã de Elfos`); }
+  }}
 function alegria() {
   let a = 0;
   if (emCasa()) { a += nvDe('casa').alegriaEmCasa; if (P.niv.sofa) a += nvDe('sofa').alegriaEmCasa; }
   if (meus().some(p => categoriaPorId(p.cat).alegria)) a += Math.max(1, bonus().alegriaMonumentoGrande);   // 🏛️ Guardiões: +2/+3
   if (bonus().alegria20km && P.alegria20Ate > agora()) a += bonus().alegria20km;                         // 🍃 20 km hoje
   if (P.consumo.comPao) a += 1;   // 🥖 consumo de hoje pago com pão
+  if (bandeiraEmCasa()) a += CONSTRUCOES.bandeira.emCasa.alegria;   // 🚩 bandeira em casa
+  if (bonus().alegriaNatureza && posAtual && naNatureza(posAtual.lat, posAtual.lng)) a += bonus().alegriaNatureza;   // 🏰 clã de Elfos
   return Math.min(ALEGRIA_MAXIMA, a - 2 * P.consumo.diasFome);
 }
 const energiaMax = () => Math.max(10, energiaMaxBase(nivel()) - 10 * P.consumo.diasFome);
@@ -424,7 +456,7 @@ function ganhar(obj, origem = '') {
   for (const [k, v0] of Object.entries(obj)) {
     let v = v0;
     if (MAT.includes(k)) { const livre = Math.max(0, capMat() - totalMat()); if (v > livre) { perdido[k] = v - livre; v = livre; } }
-    if (k === 'comida' || k === 'pao') { const livre = Math.max(0, capComida() - totalComida()); if (v > livre) { perdido[k] = v - livre; v = livre; } }
+    if (k === 'comida' || k === 'pao' || k === 'peixe') { const livre = Math.max(0, capComida() - totalComida()); if (v > livre) { perdido[k] = v - livre; v = livre; } }
     P.r[k] = (P.r[k] || 0) + v;
   }
   if (Object.keys(perdido).length) aviso(`Sem espaço: perdeste ${fmtRec(perdido)}${origem ? ' (' + origem + ')' : ''}`, true);
@@ -460,7 +492,7 @@ $('entrar').onclick = () => {
     nome: rasc.nome, avatar: rasc.avatar, cor: rasc.cor, salto: 0, criadoEm: t, ultimoProcesso: t,
     xp: 0, nivelVisto: 0, distancia: 0, kmXp: 0, kmEnergia: 0, energia: energiaMaxBase(0), regenAcc: 0,
     pos: INICIO,
-    r: { ouro: 0, comida: 0, pao: 0, pedra: 0, ferro: 0, madeira: 0, ciencia: 0, ...RECURSOS_INICIAIS }, caes: 0,
+    r: { ouro: 0, comida: 0, pao: 0, peixe: 0, pedra: 0, ferro: 0, madeira: 0, ciencia: 0, ...RECURSOS_INICIAIS }, caes: 0,
     pois: {}, presencas: {}, missoes: {}, anexando: null,
     casa: null, casaMs: 0, casaHorasPagas: 0, casaSeguidoMs: 0, casaBlocos: 0,
     niv: { casa: 0, cama: 0, sofa: 0, escritorio: 0, frigorifico: 0, fabricaPedra: 0, serracao: 0, serralharia: 0, quinta: 0 },
@@ -553,7 +585,10 @@ function moverPara(latlng, precisao = 0) {
     P.distancia += d; progDiaria('metros', d); elfosAndar(d, latlng, emPausa);
     const km = Math.floor(P.distancia / 1000);
     if (km > P.kmXp) { darXp((km - P.kmXp) * XP_POR_KM); P.kmXp = km; }
-    if (km > P.kmEnergia) { ajustarEnergia(-(km - P.kmEnergia)); P.kmEnergia = km; }
+    if (km > P.kmEnergia) {   // 1 de energia por km (🚩 bandeira contigo: metade; as frações guardam-se)
+      const gasto = (km - P.kmEnergia) * fatorEnergia() + (P.energiaResto || 0), i = Math.floor(gasto + 1e-9);
+      P.energiaResto = gasto - i; if (i) ajustarEnergia(-i); P.kmEnergia = km;
+    }
     if (P.distancia >= 1000) cumprir('andar1km');
   }
   posAtual = latlng; P.pos = [latlng.lat, latlng.lng];
@@ -668,7 +703,7 @@ function desenharCasa() {
         html: `<div class="p" style="border-color:${P.cor}${t.pronta ? '' : ';opacity:.6'}">${T.icone}</div><div class="etiqueta">${t.pronta ? 'Torre' : 'Torre em obra'}</div>` }) }).addTo(mapa),
     ]),
     L.marker([P.casa.lat, P.casa.lng], { icon: L.divIcon({ className: 'pinpoi', iconSize: [36, 36], iconAnchor: [18, 18],
-      html: `<div class="p" style="border-color:${P.cor}">🏠</div><div class="etiqueta">Casa</div>` }) }).addTo(mapa)
+      html: `<div class="p" style="border-color:${P.cor}">🏠</div><div class="etiqueta">Casa${bandeiraEmCasa() ? ' 🚩' : ''}</div>` }) }).addTo(mapa)
       .on('click', ev => { L.DomEvent.stopPropagation(ev); abrir('casa'); }),
   ];
 }
@@ -760,6 +795,18 @@ function avancar(de, ate) {
       const n = Math.floor(P.terrAcc[k]); if (n) { P.terrAcc[k] -= n; ganhar({ [k]: n }, 'território'); }
     }
   }
+  // 🏆 Pontuação: cada bandeira dá 1 ponto por hora ao jogador e 1 ao clã (em casa ou contigo)
+  if (P.niv.bandeira) {
+    P.pontos = (P.pontos || 0) + dtH * CONSTRUCOES.bandeira.pontosHora;
+    if (P.cla) P.cla.pontos = (P.cla.pontos || 0) + dtH * CONSTRUCOES.bandeira.pontosClaHora;
+  }
+  // 🏰 Manutenção em atraso: paga-se sozinha assim que houver ouro (e os bónus voltam)
+  if (P.cla && P.cla.divida && pagarDividaCla()) aviso('🏰 Manutenção da sede paga · os bónus do clã voltaram');
+  // 🚩 Bandeira em casa: 10 🪙 a cada 24 h (vai entrando aos poucos)
+  if (bandeiraEmCasa()) {
+    P.bandAcc = (P.bandAcc || 0) + dtH / 24 * CONSTRUCOES.bandeira.emCasa.ouroDia;
+    const n = Math.floor(P.bandAcc); if (n) { P.bandAcc -= n; ganhar({ ouro: n }, 'bandeira'); }
+  }
   // 📚 Biblioteca: 1 🔬 por hora; entrega sozinha às 17h de cada dia
   if (P.niv.biblioteca) {
     const B = nvDe('biblioteca');
@@ -785,8 +832,13 @@ function cobrarConsumo() {
   else { c.semOuro = true; aviso(`Sem ${CONSUMO_DIARIO.ouro} ouro para o dia · os POIs pararam`, true); }
   c.comPao = false;
   if (P.r.pao >= 1) { P.r.pao -= 1; c.diasFome = 0; c.comPao = true; aviso('🥖 Consumo pago com pão · +1 alegria hoje'); }   // 1 pão vale o consumo de comida do dia
-  else if (P.r.comida >= consumoDia().comida) { P.r.comida -= consumoDia().comida; c.diasFome = 0; }
+  else if (P.r.comida + (P.r.peixe || 0) >= consumoDia().comida) { const q = consumoDia().comida, dc = Math.min(P.r.comida, q); P.r.comida -= dc; P.r.peixe -= q - dc; c.diasFome = 0; }   // 🐟 o peixe também se come
   else { c.diasFome++; aviso('Sem comida! Alegria −2 e energia máxima −10', true); }
+  // 🏰 Sede do clã: manutenção diária
+  if (P.niv.sede) {
+    P.cla = P.cla || {}; P.cla.divida = (P.cla.divida || 0) + CONSTRUCOES.sede.manutencaoDia.ouro;
+    if (!pagarDividaCla()) aviso(`🏰 Sem ouro para a manutenção da sede (faltam ${P.cla.divida} 🪙) · o clã fica sem bónus até pagares`, true);
+  }
   ajustarEnergia(0);
 }
 function simular(t1) {
@@ -800,6 +852,8 @@ function simular(t1) {
   if (P.obra && P.obra.fim <= t1) {
     P.niv[P.obra.k] = P.obra.nv; darXp(XP_POR_CONSTRUCAO);
     aviso(`🔨 ${CONSTRUCOES[P.obra.k].icone} ${CONSTRUCOES[P.obra.k].nome} nível ${P.obra.nv} pronto · +${XP_POR_CONSTRUCAO} XP`);
+    if (P.obra.k === 'bandeira') { P.bandeira = 'casa'; desenharCasa(); }
+    if (P.obra.k === 'sede') { P.cla = P.cla || { desde: t1 }; aviso('🏰 Sede pronta · escolhe o tipo e o nome do teu clã na folha da casa 🏠'); }
     if (P.obra.k === 'casa' && P.obra.nv === 1) cumprir('zona');
     if (P.obra.k === 'casa') { P.obra = null; atualizarTerritorio(); }
     P.obra = null;
@@ -927,15 +981,15 @@ document.querySelectorAll('.tempo button').forEach(b => b.onclick = () => saltar
 function atualizarHud() {
   const { n, dentro, precisa } = progressoNivel(P.xp), max = n >= NIVEL_MAXIMO;
   pintarAvatar($('hudAvatar'), P);
-  $('hudNome').textContent = P.nome + (P.facao ? ` · ${FACOES[P.facao].icone} ${FACOES[P.facao].nome}` : '');
+  $('hudNome').textContent = P.nome + (P.facao ? ` · ${FACOES[P.facao].icone} ${FACOES[P.facao].nome}` : '') + (bandeiraComigo() ? ' · 🚩' : '') + (P.cla && P.cla.nome ? ` · 🏰 ${P.cla.nome}` : '');
   const preso = !P.facao && n >= NIVEL_ESCOLHA_FACAO;   // nível 10 sem fação: não sobe e só junta até 200 XP
   $('hudLinha').textContent = `Militante · Nível ${n} · ` + (max ? 'nível máximo' : preso ? `${dentro}/${XP_MAX_SEM_FACAO} XP · escolhe a fação para subir` : `${dentro}/${precisa} XP`);
   $('hudXp').style.width = (max ? 100 : dentro / (preso ? XP_MAX_SEM_FACAO : precisa) * 100) + '%';
   const d = new Date(agora()), dia = Math.floor((agora() - P.criadoEm) / DIA) + 1;
   $('hudRelogio').innerHTML = `Dia ${dia} · ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}<br><span style="font-weight:400;color:var(--suave)">${estadoGps}</span>`;
-  $('hudEnergiaTxt').textContent = `🏛️ POIs ${meusFora().length}/${maxEdificiosNivel(nivel())}${meus().length > meusFora().length ? ` +${meus().length - meusFora().length} 🗼` : ''}${P.anexando ? ' (+1 a anexar)' : ''} · ⚡ ${P.energia}/${energiaMax()} · +${Math.round(regenHora() * 10) / 10}/h · 😊 ${alegria()} · 🧱 ${totalMat()}/${capMat()} · 🍞 ${Math.floor(totalComida())}/${capComida()}`;
+  $('hudEnergiaTxt').textContent = `🏛️ POIs ${meusFora().length}/${maxEdificiosNivel(nivel())}${meus().length > meusFora().length ? ` +${meus().length - meusFora().length} 🗼` : ''}${P.anexando ? ' (+1 a anexar)' : ''} · ⚡ ${P.energia}/${energiaMax()} · +${Math.round(regenHora() * 10) / 10}/h · 😊 ${alegria()}${alegria() > 0 ? ` (+${Math.round(alegria() * ALEGRIA_PRODUCAO * 100)}% produção)` : ''} · 🧱 ${totalMat()}/${capMat()} · 🍞 ${Math.floor(totalComida())}/${capComida()}`;
   $('hudEnergia').style.width = (P.energia / energiaMax() * 100) + '%';
-  $('hudRecursos').innerHTML = REC.filter(k => k !== 'pao' || eHumano() || P.r.pao).map(k => `<span>${ic(k)} ${Math.floor(P.r[k])}</span>`).join('');
+  $('hudRecursos').innerHTML = REC.filter(k => (k !== 'pao' || eHumano() || P.r.pao) && (k !== 'peixe' || podePescar() || P.r.peixe)).map(k => `<span>${ic(k)} ${Math.floor(P.r[k])}</span>`).join('');
   const pend = missoesDisponiveis().length + diariasDeHoje().lista.filter(x => !x.feita).length + (bauAbertoHoje() ? 0 : 1);
   $('btnEsc').classList.toggle('escondido', !(eElfo() && bonus().esconderijos));
   $('badge').textContent = pend; $('badge').classList.toggle('escondido', !pend);
@@ -971,6 +1025,7 @@ const distTxt = (s, raio) => !posAtual ? '' : presente(s, raio) ? 'Estás no loc
 // ---- POI ----
 function bloqueioAnexar(p) {
   if (maxEdificiosNivel(nivel()) === 0) return 'Nível 0: chega ao nível 1 para anexar.';
+  if (categoriaPorId(p.cat).soClas && !podePescar()) return `🎣 Pesca: só clãs de Elfos ou de Humanos com ${categoriaPorId(p.cat).pontosCla} pontos do clã`;
   if (meusFora().length >= maxEdificiosNivel(nivel())) return `Limite de POIs (${meusFora().length}/${maxEdificiosNivel(nivel())}) · sobe de nível ou constrói torres`;
   if (P.energia <= 0 && categoriaPorId(p.cat).energiaAnexar !== 0) return 'Sem energia';
   if (P.anexando && P.anexando !== p.id) return 'Já estás a anexar outro POI';
@@ -989,19 +1044,22 @@ function reconhecer(p) {
 function recolherPoi(p, remoto, silencioso = false) {   // silencioso: sem aviso, devolve o que se recolheu
   const c = categoriaPorId(p.cat), e = est(p.id), n = Math.floor(e.acc);
   if (!n) return;
+  if (c.soClas && !podePescar()) { if (!silencioso) aviso('🎣 Só os clãs de Elfos ou de Humanos podem pescar', true); return; }
   if (remoto) { const hoje = Math.floor(agora() / DIA); if (P.remotas.dia !== hoje) P.remotas = { dia: hoje, n: 0 }; P.remotas.n++; }
   // 🌾 Colheita (Humanos): +% em tudo menos ouro e ciência; as frações guardam-se para a próxima recolha
   // 🏛️ Guardiões (Elfos): +25% por cada nível do monumento acima do 1 (em tudo, ouro incluído)
-  const g = mult(c.produz, n), extra = bonus().producaoPoi, nvMon = (e.nv || 1) - 1;
+  // 🏰 clã de Humanos: +10% nos POIs do território · 😊 alegria: +10% em tudo por cada ponto
+  const g = mult(c.produz, n), extra = bonus().producaoPoi + (bonus().producaoTerritorio && noTerritorio(p) ? bonus().producaoTerritorio : 0), nvMon = (e.nv || 1) - 1, fA = fatorAlegria();
   // 💰 Tesouro (Gnomos): +5–25% no ouro
-  const fator = k => (k !== 'ouro' && k !== 'ciencia' ? 1 + extra : 1) * (k === 'ouro' ? 1 + bonus().ouroExtra : 1) * (1 + ARVORES_FACAO.elfos.guardioes.producaoPorNivel * nvMon);
-  if (extra || nvMon || bonus().ouroExtra) { e.resto = e.resto || {};
+  const fator = k => (k !== 'ouro' && k !== 'ciencia' ? 1 + extra : 1) * (k === 'ouro' ? 1 + bonus().ouroExtra : 1) * (1 + ARVORES_FACAO.elfos.guardioes.producaoPorNivel * nvMon) * fA;
+  if (extra || nvMon || bonus().ouroExtra || fA !== 1) { e.resto = e.resto || {};
     for (const k of Object.keys(g)) if (fator(k) !== 1) {
       const v = g[k] * fator(k) + (e.resto[k] || 0); g[k] = Math.floor(v + 1e-9); e.resto[k] = v - g[k];
     } }
   // 🏡 Lar (Humanos): os POIs do território (menos supermercados e bancos) dão +1 de cada recurso por ciclo
   const LAR = ARVORES_FACAO.humanos.lar;
   if (bonus().extraTerritorio && !LAR.excetoTerritorio.includes(p.cat) && noTerritorio(p)) for (const k of Object.keys(g)) g[k] += n * bonus().extraTerritorio;
+  if (bandeiraComigo()) for (const k of Object.keys(g)) g[k] += Math.floor(g[k] / CONSTRUCOES.bandeira.comigo.extraPorCada);   // 🚩 +1 por cada 3
   ganhar(g, p.nome); e.acc -= n; progDiaria('recolher');
   if (silencioso) return g;
   aviso(`+ ${fmtRec(g)}`); tick();
@@ -1085,6 +1143,7 @@ function renderFeira() {
     h += '<div class="seccao">Vender</div><div class="vender">';
     for (const [k, preco0] of Object.entries(COMERCIO.precoVenda)) {
       if (k === 'pao' && !eHumano() && !P.r.pao) continue;
+      if (k === 'peixe' && !P.r.peixe) continue;
       const preco = preco0 * multVenda, vend = q => () => {
         q = Math.min(q, Math.floor(P.r[k]), Math.floor((COMERCIO.limiteOuroDia - P.vendas.ouro) / preco));
         if (q <= 0) return;
@@ -1095,15 +1154,16 @@ function renderFeira() {
       h += `<span>${ic(k)} ${Math.floor(P.r[k])} · ${lote > 1 ? lote + ' = ' + lote * preco : preco} 🪙</span>${btn('×' + lote, vend(lote))}${btn('×' + lote * 10, vend(lote * 10))}`;
     }
     h += '</div><div class="seccao">Comprar</div><div class="vender">';
-    for (const [k, preco] of Object.entries(COMERCIO.precoCompra)) {
+    for (const [k, preco0] of Object.entries(COMERCIO.precoCompra)) {
+      const preco = preco0 * (1 - (bonus().descontoCompraFeira || 0));   // 🏰 clã de Gnomos: compras mais baratas
       const comp = q => () => {
         const livre = k === 'comida' ? capComida() - totalComida() : capMat() - totalMat();
         q = Math.min(q, Math.floor(P.r.ouro / preco), Math.floor(livre));
         if (q <= 0) return aviso(livre <= 0 ? 'Sem espaço para guardar' : 'Ouro insuficiente', true);
-        P.r.ouro -= q * preco; P.r[k] += q; progDiaria('feira');
-        aviso(`Compraste ${q} ${ic(k)} por ${q * preco} 🪙`); tick();
+        const custo = Math.ceil(q * preco - 1e-9); P.r.ouro -= custo; P.r[k] += q; progDiaria('feira');
+        aviso(`Compraste ${q} ${ic(k)} por ${custo} 🪙`); tick();
       };
-      h += `<span>${ic(k)} 1 = ${preco} 🪙</span>${btn('×1', comp(1))}${btn('×10', comp(10))}`;
+      h += `<span>${ic(k)} 1 = ${+preco.toFixed(1)} 🪙</span>${btn('×1', comp(1))}${btn('×10', comp(10))}`;
     }
     h += '</div><div class="nota">Sem limite de vendas nem de compras. O que compras tem de caber no armazenamento.</div>';
     if (bonus().taxaFeira) h += `<div class="nota">🎪 Feirante: vendes +${Math.round(bonus().vendaFeiraExtra * 100)}%. Se fores o Gnomo com mais horas nesta feira, controla-la e recebes ${Math.round(bonus().taxaFeira * 100)}% do ouro que os outros jogadores aqui vendem e compram (quando houver outros jogadores). Tens ${fmtTempo(P.horasFeira && P.horasFeira[f.id] || 0)} aqui.</div>`;
@@ -1136,6 +1196,10 @@ function bloqueioConstruir(k) {
   const req = c.niveis[atual];
   if (req.nivelJogador && nivel() < req.nivelJogador) return `precisa do nível ${req.nivelJogador}`;
   if (req.nivelCasa && P.niv.casa < req.nivelCasa) return `precisa da casa nível ${req.nivelCasa}`;
+  if (c.precisaFacao && !P.facao) return 'escolhe primeiro a fação';
+  if (c.precisaCla && !claDaFacao(c.precisaCla)) return `só num clã de ${FACOES[c.precisaCla].nome}`;
+  if (c.pontosCla && pontosCla() < c.pontosCla) return `o clã precisa de ${c.pontosCla} pontos (tem ${pontosCla()})`;
+  if (c.soMultijogador) return 'só quando houver multijogador';
   if (req.ciencia && (P.cien[req.ciencia.ramo] || 0) < req.ciencia.nivel) return `precisa de ${nomeRamo(req.ciencia.ramo)} nível ${req.ciencia.nivel}`;
   if (atual === 0 && c.tipo === 'dentro' && DENTRO.filter(x => P.niv[x]).length >= nvDe('casa').espacosDentro) return 'sem espaço dentro da casa';
   if (atual === 0 && c.tipo === 'fora' && FORA.filter(x => P.niv[x]).length >= espacosFora()) return 'sem espaço à volta da casa';
@@ -1167,6 +1231,9 @@ function recolherFora() {
     for (const [r, v] of Object.entries(nv.produz)) g[r] = (g[r] || 0) + v * n;
     P.fora[k] -= n * nv.cicloHoras;
   }
+  // 😊 alegria (+10% por ponto) · 🏰 clã de Humanos (+20%): as frações guardam-se
+  const fF = fatorAlegria() * (1 + (bonus().producaoFora || 0));
+  if (fF !== 1) { P.foraResto = P.foraResto || {}; for (const k of Object.keys(g)) { const v = g[k] * fF + (P.foraResto[k] || 0); g[k] = Math.floor(v + 1e-9); P.foraResto[k] = v - g[k]; } }
   if (Object.keys(g).length) { ganhar(g, 'construções'); aviso(`+ ${fmtRec(g)}`); }
   if (semComida) aviso('🌀 O moinho não tem comida que chegue para moer tudo', true);
   tick();
@@ -1179,6 +1246,8 @@ function comprarCao() {
 function bloqueioCao() {
   const C = CONSTRUCOES.cao, req = C.niveis[0];
   if (P.caes >= C.maxCaes) return `já tens ${C.maxCaes} cão (por agora o máximo)`;
+  if (!claDaFacao(C.precisaCla)) return 'só num clã de Humanos';
+  if (pontosCla() < C.pontosCla) return `o clã precisa de ${C.pontosCla} pontos (tem ${pontosCla()})`;
   if ((P.cien.lar || 0) < req.ciencia.nivel) return `precisa de ${nomeRamo('lar')} nível ${req.ciencia.nivel}`;
   if (!temRec(req.custo)) return 'faltam recursos';
   return '';
@@ -1211,6 +1280,56 @@ function htmlBonusTerritorio() {
   if (b.extraTerritorio) linhas.push(`🏡 Lar: os POIs do território (menos supermercados e bancos) dão +${b.extraTerritorio} de cada recurso em cada recolha`);
   return linhas.length ? `<div class="nota">${linhas.join('<br>')}</div>` : '';
 }
+// ---- 🚩 Bandeira e 🏰 clã (folha da casa) ----
+function trocarBandeira() {
+  if (!emCasa() || !P.niv.bandeira) return;
+  P.bandeira = bandeiraComigo() ? 'casa' : 'comigo';
+  aviso(bandeiraComigo() ? '🚩 Levas a bandeira contigo · metade da energia e +1 por cada 3 nos POIs' : '🚩 A bandeira ficou em casa · +1 alegria e 10 🪙 por dia');
+  desenharCasa(); tick();
+}
+function escolherTipoCla(t) {
+  const T = CONSTRUCOES.sede.tipos[t], nome = t === 'facao' ? `Só ${FACOES[P.facao].nome}` : T.nome;
+  perguntar(t === 'facao' ? FACOES[P.facao].icone : T.icone, `Clã ${nome}`, `${T.texto}<br>Bónus: ${CONSTRUCOES.sede.bonus[t === 'facao' ? P.facao : 'multi'].texto}.<br><br>A escolha é para sempre.`, 'Escolher', () => {
+    P.cla = P.cla || {}; P.cla.tipo = t; if (t === 'facao') P.cla.facao = P.facao;
+    aviso(`🏰 Clã ${nome} · agora dá-lhe um nome`); abrir('casa'); tick();
+  }, 'casa');
+}
+function nomearCla() {
+  cab('🏰', 'Nome do clã', 'Entre 3 e 20 caracteres');
+  $('fCorpo').innerHTML = `<label class="titulo">Nome do clã</label><input id="nomeCla" type="text" maxlength="20" value="${esc((P.cla && P.cla.nome) || '')}">
+    <div class="acoes">${btn('Cancelar', () => abrir('casa'))}${btn('Guardar', () => {
+      const nome = $('nomeCla').value.trim();
+      if (nome.length < 3) return aviso('O nome do clã precisa de pelo menos 3 caracteres', true);
+      (P.cla = P.cla || {}).nome = nome; document.activeElement.blur(); aviso(`🏰 Clã «${nome}»`); abrir('casa'); tick();
+    }, true, 'ok')}</div>`;
+  aberto = 'editar';
+}
+function htmlBandeiraCla() {
+  let h = '';
+  if (P.niv.bandeira) {
+    const B = CONSTRUCOES.bandeira;
+    h += `<div class="seccao">🚩 Bandeira</div><div class="bloco"><div class="r">${bandeiraComigo() ? 'Levas a bandeira contigo' : 'A bandeira está em casa'}</div>
+      <div class="nota">Em casa: +${B.emCasa.alegria} alegria e ${B.emCasa.ouroDia} 🪙 a cada 24 h. Contigo: gastas metade da energia (a andar e a anexar) e nos POIs recolhes +1 por cada ${B.comigo.extraPorCada}.<br>🏆 Pontos: ${Math.floor(P.pontos || 0)} · a bandeira dá ${B.pontosHora} por hora (a ti) e ${B.pontosClaHora} por hora ao clã.</div>
+      <div class="acoes">${btn((bandeiraComigo() ? '🏠 Deixar em casa' : '🚩 Levar comigo') + (emCasa() ? '' : ' · só em casa'), trocarBandeira, emCasa())}</div></div>`;
+  }
+  if (P.niv.sede) {
+    const C = P.cla || {}, S = CONSTRUCOES.sede;
+    const T = C.tipo && S.tipos[C.tipo], nomeTipo = !T ? '' : C.tipo === 'facao' ? `${FACOES[C.facao].icone} Só ${FACOES[C.facao].nome}` : `${T.icone} ${T.nome}`;
+    if (!C.tipo) {
+      h += `<div class="seccao">🏰 Clã · escolhe o tipo</div><div class="bloco"><div class="r">Que clã queres fundar?</div>
+        <div class="nota">A escolha é para sempre.</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">${Object.keys(S.tipos).map(t => btn(t === 'facao' ? `${FACOES[P.facao].icone} Só ${FACOES[P.facao].nome}` : `${S.tipos[t].icone} ${S.tipos[t].nome}`, () => escolherTipoCla(t))).join('')}</div>
+        <div class="nota" style="margin-top:8px">🌍 ${S.tipos.multi.texto}<br>Bónus: ${S.bonus.multi.texto}.<br><br>${FACOES[P.facao].icone} ${S.tipos.facao.texto}<br>Bónus: ${S.bonus[P.facao].texto}.</div></div>`;
+      return h;
+    }
+    h += `<div class="seccao">🏰 Clã</div><div class="bloco"><div class="r">${C.nome ? esc(C.nome) : 'Clã sem nome'} · ${nomeTipo} · fundador: ${esc(P.nome)}</div>
+      <div class="nota">${T.texto}<br>${claAtivo() ? '✅ Bónus ativos' : '⚠️ Sem bónus até pagares a manutenção'}: ${bonusClaInfo().texto}.<br>🏆 Pontos do clã: ${Math.floor(C.pontos || 0)} · cada bandeira dos membros dá 1 por hora.<br>👥 Membros: 1/${maxMembrosCla(C.pontos)}${proximoMembroCla(C.pontos) ? ` · ${proximoMembroCla(C.pontos).max} membros aos ${proximoMembroCla(C.pontos).pontos} pontos` : ''}<br>
+        Manutenção da sede: ${fmtRec(S.manutencaoDia)} por dia${C.divida ? ` · ⚠️ faltam ${C.divida} 🪙 por pagar (paga-se sozinha quando houver ouro)` : ''}.
+        Por agora és o único membro: os outros jogadores poderão entrar quando houver multijogador (entrar num clã é sempre opcional).</div>
+      <div class="acoes">${btn(C.nome ? '✏️ Mudar o nome' : '✏️ Dar nome ao clã', nomearCla, true, C.nome ? '' : 'ok')}</div></div>`;
+  }
+  return h;
+}
 function htmlTerritorio() {
   const T = TERRITORIO.torre, noTerr = meus().filter(noTerritorio).length, b = bloqueioTorre();
   const emObra = (P.torres || []).filter(t => !t.pronta);
@@ -1240,19 +1359,19 @@ function renderCasa() {
     if (P.niv.biblioteca) h += `<div class="nota">📚 Biblioteca: ${Math.floor(P.bibAcc || 0)} 🔬 à espera · entrega sozinha às ${nvDe('biblioteca').entregaAs}h</div>`;
     const prontos = FORA.filter(k => P.niv[k]).map(k => { const n = ciclosProntos(k); return n ? `${CONSTRUCOES[k].icone} ${fmtRec(mult(nvDe(k).produz, n))}${nvDe(k).consome ? ` (gasta ${fmtRec(mult(nvDe(k).consome, n))})` : ''}` : ''; }).filter(Boolean);
     if (FORA.some(k => P.niv[k])) h += `<div class="bloco"><div class="r">Produção das construções</div><div class="v">${prontos.join(' · ') || 'nada ainda'}</div><div class="acoes">${btn('Recolher', recolherFora, emCasa() && prontos.length, 'ok')}</div></div>`;
-    h += htmlTerritorio();
+    h += htmlTerritorio() + htmlBandeiraCla();
     // Armazenamento
     const maxB = CONSTRUCOES.bau.maxPorNivelCasa[P.niv.casa - 1], precoB = CONSTRUCOES.bau.niveis[0].custo.ouro;
     h += `<div class="seccao">Armazenamento</div>
       <div class="bloco"><div class="r">🧱 Materiais (pedra + ferro + madeira, partilhado)</div><div class="v">${totalMat()} / ${capMat()}</div><div class="barra"><div style="width:${Math.min(100, totalMat() / capMat() * 100)}%"></div></div>
       <div class="nota">Mochila ${ARMAZENAMENTO.mochila.materiais} + casa ${ARMAZENAMENTO.casa.materiais} (protegidos) + ${P.baus} baú(s) × 300 (podem ser roubados)${P.bausAChegar.length ? ` · ${P.bausAChegar.length} a chegar` : ''}</div>
       <div class="acoes">${btn(`🧰 Comprar baú (${fmtCusto({ ouro: precoB })} · ${P.baus + P.bausAChegar.length}/${maxB} baús)`, () => { P.r.ouro -= precoB; P.bausAChegar.push(agora() + HORA); aviso('🧰 Baú comprado · chega em 1 h'); tick(); }, P.r.ouro >= precoB && P.baus + P.bausAChegar.length < maxB)}</div></div>
-      <div class="bloco"><div class="r">🍞 Comida${P.r.pao ? ' + 🥖 pão' : ''}</div><div class="v">${Math.floor(totalComida())} / ${capComida()}</div><div class="barra"><div style="width:${Math.min(100, totalComida() / capComida() * 100)}%"></div></div>
+      <div class="bloco"><div class="r">🍞 Comida${P.r.pao ? ' + 🥖 pão' : ''}${P.r.peixe ? ' + 🐟 peixe' : ''}</div><div class="v">${Math.floor(totalComida())} / ${capComida()}</div><div class="barra"><div style="width:${Math.min(100, totalComida() / capComida() * 100)}%"></div></div>
       <div class="nota">Mochila ${ARMAZENAMENTO.mochila.comida} + casa ${ARMAZENAMENTO.casa.comida} (protegidos) + frigorífico ${capFrigorifico()}${bonus().frigorificoExtra ? ` (🏡 celeiro +${Math.round(bonus().frigorificoExtra * 100)}%)` : ''}${P.r.pao ? ` · 🥖 ${P.r.pao} pão (1 lugar cada)` : ''}</div></div>`;
     if (eHumano()) {
       const C = CONSTRUCOES.cao, req = C.niveis[0], b = bloqueioCao();
       h += `<div class="bloco"><div class="r">${C.icone} ${C.nome} · ${P.caes}/${C.maxCaes}</div>
-        <div class="nota">${C.descricao} Chance agora: ${Math.round(bonus().defesaCao * 100)}% (🏡 Lar 2–6%).</div>
+        <div class="nota">${C.descricao} Chance agora: ${Math.round(bonus().defesaCao * 100)}% (🏡 Lar 2–6% · 🏰 clã de Humanos +10%).</div>
         <div class="acoes">${btn(`Comprar cão (${fmtCusto(req.custo)})${b && P.caes < C.maxCaes ? ' · ' + b : ''}`, comprarCao, !b)}</div></div>`;
     }
   }
@@ -1294,7 +1413,7 @@ function renderEsconderijo() {
         if (!P.r[k] && !s.r[k]) continue;
         const guardar = () => { const q = Math.min(10, Math.floor(P.r[k]), b.capacidadeEsconderijo - totalEsc(s)); if (q <= 0) return; P.r[k] -= q; s.r[k] = (s.r[k] || 0) + q; desenharEsconderijos(); tick(); };
         const levar = () => {
-          const livre = k === 'comida' || k === 'pao' ? capComida() - totalComida() : capMat() - totalMat();
+          const livre = k === 'comida' || k === 'pao' || k === 'peixe' ? capComida() - totalComida() : capMat() - totalMat();
           const q = Math.min(s.r[k] || 0, Math.floor(livre)); if (q <= 0) return aviso('Sem espaço para levar', true);
           s.r[k] -= q; if (!s.r[k]) delete s.r[k]; P.r[k] += q; desenharEsconderijos(); tick();
         };
@@ -1346,7 +1465,7 @@ function renderCiencia() {
 const edicao = {};
 function renderPerfil() {
   const n = nivel();
-  cab(P.avatar, P.nome, `Militante · Nível ${n} · ${P.xp} XP${P.facao ? ' · ' + FACOES[P.facao].nome : ''}`);
+  cab(P.avatar, P.nome, `Militante · Nível ${n} · ${P.xp} XP${P.facao ? ' · ' + FACOES[P.facao].nome : ''}${P.niv.bandeira ? ` · 🏆 ${Math.floor(P.pontos || 0)} pontos` : ''}`);
   $('fIcone').style.background = P.cor;
   const D = diariasDeHoje(), meiaNoite = new Date(agora()); meiaNoite.setHours(24, 0, 0, 0);
   const bauFeito = bauAbertoHoje();
@@ -1533,7 +1652,7 @@ function iniciarGps() {
   if (!marcador) marcador = L.marker(P.pos, { icon: iconeJogador(), zIndexOffset: 1000 }).addTo(mapa);
 }
 function iniciarJogo() {
-  P.r.pao = P.r.pao || 0; P.caes = P.caes || 0;   // gravações antigas
+  P.r.pao = P.r.pao || 0; P.r.peixe = P.r.peixe || 0; P.caes = P.caes || 0;   // gravações antigas
   $('criacao').classList.add('escondido'); $('jogo').classList.remove('escondido');
   mapa = L.map('mapa', { zoomControl: false, preferCanvas: true });
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(mapa);

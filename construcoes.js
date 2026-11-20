@@ -34,6 +34,8 @@ const FACOES = {
 // Não se acumula: é a soma dos bónus ativos NESTE momento, com máximo 10.
 // Cada fonte conta uma vez só (dois monumentos grandes dão +1, não +2).
 const ALEGRIA_MAXIMA = 10;
+// Cada ponto de alegria (positivo) dá +10% de produção, no momento: POIs, construções à volta da casa e território
+const ALEGRIA_PRODUCAO = 0.10;
 
 // ---- Armazenamento ---------------------------------------------------------
 // O que passar do limite perde-se. Os espaços SOMAM-SE:
@@ -241,6 +243,50 @@ const CONSTRUCOES = {
     ],
   },
 
+  // -- Especiais (constroem-se em casa, não ocupam espaços da casa) --
+  // 🚩 Bandeira: só uma por jogador. Em casa dá alegria e ouro; levada contigo poupa energia e rende mais nos POIs.
+  bandeira: {
+    nome: 'Bandeira', icone: '🚩', tipo: 'especial',
+    descricao: 'Só uma por jogador. Começa a tua pontuação: 1 ponto por hora para ti e 1 para o teu clã. Em casa: +1 alegria e 10 🪙 a cada 24 h. Levada contigo (troca-se em casa): gastas metade da energia e nos POIs recolhes +1 recurso por cada 3.',
+    niveis: [{ nivelCasa: 1, custo: { ouro: 10 }, horas: 1 }],
+    emCasa: { alegria: 1, ouroDia: 10 },
+    comigo: { energia: 0.5, extraPorCada: 3 },   // energia gasta × 0,5 · +1 de cada recurso por cada 3 recolhidos
+    pontosHora: 1,       // pontuação do jogador: cada bandeira dá 1 ponto por hora, sozinha (em casa ou contigo)
+    pontosClaHora: 1,    // e 1 ponto por hora ao clã do jogador
+  },
+  // 🏰 Sede do clã: fundar um clã. A manutenção é o valor inicial (pode mudar mais tarde).
+  // Os outros jogadores só poderão entrar quando houver multijogador; entrar num clã é sempre opcional.
+  sede: {
+    nome: 'Sede do clã', icone: '🏰', tipo: 'especial',
+    descricao: 'Funda um clã (tu és o fundador). Só depois de escolheres a fação. Quando ficar pronta escolhes o tipo de clã: multicultural ou só da tua fação. Manutenção: 10 🪙 por dia; sem ouro para a pagar, o clã fica sem bónus até pagares.',
+    precisaFacao: true,
+    // Tipo do clã (escolhe-se uma vez, quando a sede fica pronta). Os bónus estão em onus (só com a manutenção paga).
+    tipos: {
+      multi: { nome: 'Multicultural', icone: '🌍', texto: 'Aceita jogadores de todas as fações. A partir de 3 membros, nenhuma fação pode ter mais de 50% nem menos de 10% dos membros (se desequilibrar, só entram as fações em falta). Ganha bónus pela variedade.' },
+      facao: { nome: 'Só da fação', icone: '🛡️', texto: 'Só aceita jogadores da tua fação. Ganha bónus próprios da fação.' },
+    },
+    // Bónus do clã: multicultural (um pouco de tudo) ou da fação (Elfos: natureza; Humanos: casa e território; Gnomos: comércio)
+    bonus: {
+      multi:   { texto: '+5% nos recursos e no ouro dos POIs, gastas 5% menos energia a anexar, obras 5% mais rápidas e vendes +5% nas feiras',
+                 efeitos: { producaoPoi: 0.05, ouroExtra: 0.05, energiaAnexar: 0.05, tempoObra: 0.05, vendaFeiraExtra: 0.05 } },
+      elfos:   { texto: 'Território 20% maior (casa e torres), +50% de madeira da mata do território, +1 🪵 por cada km a andar na natureza e +1 alegria enquanto estás numa zona verde',
+                 efeitos: { raioTerritorio: 0.2, madeiraTerritorio: 0.5, madeiraKmNatureza: 1, alegriaNatureza: 1 } },
+      humanos: { texto: 'Obras 15% mais rápidas, as construções à volta da casa produzem +20%, os POIs do território +10% e mais defesa contra roubos (+10%, quando houver roubos)',
+                 efeitos: { tempoObra: 0.15, producaoFora: 0.2, producaoTerritorio: 0.1, defesaCao: 0.1 } },
+      gnomos:  { texto: 'Vendes +15% nas feiras, compras 10% mais barato, +10% de ouro (POIs e bancos) e podem pagar a ladrões para assaltar outros clãs (quando houver multijogador)',
+                 efeitos: { vendaFeiraExtra: 0.15, descontoCompraFeira: 0.1, ouroExtra: 0.1 } },
+    },
+    niveis: [{ nivelCasa: 1, custo: { ouro: 200, ferro: 20, madeira: 20, pedra: 20 }, horas: 12 }],
+    manutencaoDia: { ouro: 10 },
+  },
+  // 🎪 Feira do clã: só clãs de Gnomos, a partir de 1000 pontos do clã. Fica no território; os outros clãs
+  // vêm cá comprar e vender e o clã ganha ouro com isso. Só faz sentido com multijogador.
+  feiraCla: {
+    nome: 'Feira do clã', icone: '🎪', tipo: 'especial', precisaCla: 'gnomos', pontosCla: 1000, soMultijogador: true,
+    descricao: 'Só clãs de Gnomos, com 1000 pontos do clã. Uma feira no teu território que os outros clãs visitam para comprar e vender; o teu clã ganha ouro com o comércio. Chega com o multijogador.',
+    niveis: [{ nivelCasa: 1, custo: { ouro: 500, madeira: 40, pedra: 20 }, horas: 24 }],
+  },
+
   // -- À volta da casa (até ao nível 10 só estas quatro) --
   // produz: por ciclo · cicloHoras · maxHoras = acumula no máximo (recolhe-se em casa)
   fabricaPedra: {
@@ -299,7 +345,8 @@ const CONSTRUCOES = {
   // (mais tarde pode ganhar-se espaço para mais). A chance de defesa vem do ramo 🏡 Lar (2–6%).
   cao: {
     nome: 'Cão de guarda', icone: '🐕', tipo: 'cao', facao: 'humanos', comprado: true, maxCaes: 1,
-    descricao: 'Quando alguém te tenta roubar, o cão tem uma pequena chance de o pôr a correr: o ladrão sai sem nada.',
+    precisaCla: 'humanos', pontosCla: 100,   // só num clã de Humanos (tipo "só da fação") com 100 pontos do clã
+    descricao: 'Só num clã de Humanos com 100 pontos do clã. Quando alguém te tenta roubar, o cão tem uma pequena chance de o pôr a correr: o ladrão sai sem nada.',
     niveis: [
       { nivelCasa: 1, facao: 'humanos', ciencia: { ramo: 'lar', nivel: 1 }, custo: { ouro: 200, comida: 20 }, horas: 0 },
     ],
@@ -310,7 +357,33 @@ const CONSTRUCOES = {
 const melhoriaMonumento = n => ({ custo: { ouro: 150 * n, pedra: 15 * n, ferro: 10 * n }, horas: 12 * n });
 
 // Cão de guarda: o roubo falha? (`sorte` entre 0 e 1). Chance = 🏡 Lar 2–6%, só com cão.
-const caoDefende = (niveisCiencia, temCao, sorte = Math.random()) => !!temCao && sorte < bonusCiencia(niveisCiencia).defesaCao;
+// 🏰 Quem pode entrar num clã (para o multijogador). `facoes` = fações dos membros atuais.
+//  · Clã só da fação: só jogadores dessa fação.
+//  · Multicultural, a partir de 3 membros: nenhuma fação com mais de 50% nem menos de 10% dos membros.
+//    Se sair alguém e ficar desequilibrado, até voltar a equilibrar só entram as fações que corrigem isso.
+//    Antes dos 3 membros, o 2.º tem de ser de outra fação (senão o 3.º nunca poderia equilibrar).
+const REGRAS_MULTI = { minMembros: 3, maxFacao: 0.5, minFacao: 0.1 };
+// 👥 Máximo de membros conforme os pontos do clã (a afinar: por agora 3 ao fundar e 4 aos 100 pontos)
+const MEMBROS_CLA = [{ pontos: 0, max: 3 }, { pontos: 100, max: 4 }];
+const maxMembrosCla = pontos => MEMBROS_CLA.filter(m => (pontos || 0) >= m.pontos).pop().max;
+const proximoMembroCla = pontos => MEMBROS_CLA.find(m => (pontos || 0) < m.pontos) || null;
+function desequilibrioCla(facoes) {
+  const n = facoes.length; if (n < REGRAS_MULTI.minMembros) return 0;
+  let d = 0;
+  for (const f of Object.keys(FACOES)) {
+    const p = facoes.filter(x => x === f).length / n;
+    d += Math.max(0, p - REGRAS_MULTI.maxFacao) + Math.max(0, REGRAS_MULTI.minFacao - p);
+  }
+  return d;
+}
+function podeEntrarCla(cla, facoes, facaoNova) {
+  if (facoes.length >= maxMembrosCla(cla.pontos)) return false;   // clã cheio para os pontos que tem
+  if (cla.tipo === 'facao') return facaoNova === cla.facao;
+  if (facoes.length + 1 < REGRAS_MULTI.minMembros) return !facoes.includes(facaoNova);
+  const antes = desequilibrioCla(facoes), depois = desequilibrioCla([...facoes, facaoNova]);
+  return depois === 0 || depois < antes;
+}
+const caoDefende =(niveisCiencia, temCao, sorte = Math.random()) => !!temCao && sorte < bonusCiencia(niveisCiencia).defesaCao;
 
 // Recomenda a fação para uma zona (aproximado).
 // `disponivel` = quanto de cada recurso se consegue por dia perto de casa (dos POIs num raio de 5 km).
