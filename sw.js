@@ -10,6 +10,8 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   // Os mosaicos do mapa não se guardam (são muitos)
   if (req.url.includes('tile.openstreetmap.org')) return;
+  // O servidor do multijogador (Supabase) nunca se guarda: tem de ser sempre a informação de agora
+  if (req.url.includes('.supabase.co') || req.url.includes('supabase-js')) return;
   e.respondWith(
     fetch(req)
       .then(resp => {

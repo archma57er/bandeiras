@@ -30,7 +30,7 @@
   h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: 1px; text-transform: uppercase; color: var(--acento); }
   .sub { margin: 0 0 20px; color: var(--suave); font-size: 14px; }
   label.titulo { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--suave); margin: 18px 0 8px; }
-  input[type=text] { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--borda); background: var(--painel2); color: var(--texto); font-size: 16px; }
+  input[type=text], input[type=email] { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--borda); background: var(--painel2); color: var(--texto); font-size: 16px; }
   .grelha { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
   .opcao { aspect-ratio: 1; border-radius: 12px; border: 2px solid var(--borda); background: var(--painel2); font-size: 26px;
     display: flex; align-items: center; justify-content: center; padding: 0; }
@@ -91,6 +91,7 @@
   .pe div { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 21px; line-height: 1;
     background: #f6f2e4; border: 3px solid #888; box-shadow: 0 0 0 1.5px #111, 0 2px 5px rgba(0,0,0,.6); transition: transform .15s; }
   .pe .rec { box-shadow: 0 0 0 2.5px #fff, 0 0 0 4px #111, 0 2px 5px rgba(0,0,0,.6); }
+  .pe .outro { border-width: 5px; filter: saturate(.6); }   /* 🌐 POI de outro jogador */
   .pe .meu { border-width: 5px; transform: scale(1.2); box-shadow: 0 0 0 2.5px #fff, 0 0 0 4px #111, 0 2px 5px rgba(0,0,0,.6); }
   .longe .pe div { transform: scale(.85); }
   .longe .pe .meu { transform: scale(1); }
@@ -136,12 +137,24 @@
   <div class="cartao">
     <img class="logotipo" src="logotipo.png" alt="Bandeiras · Explora · Reconhece · Anexa">
     <p class="sub">Jogo completo (teste) · Grande Lisboa, Península de Setúbal, Oeste até às Caldas da Rainha (Torres Vedras, Lourinhã, Peniche, Óbidos, Bombarral, Cadaval, Alenquer, Arruda, Sobral) e Azambuja · Évora, Aveiro, Ílhavo, Leiria e Kildare (Irlanda). Começas no nível 0: explora, reconhece e anexa sítios reais. Aceita o pedido de localização.</p>
+    <div id="online" class="escondido">
+      <label class="titulo">🌐 Jogo online · entra com o teu email</label>
+      <input id="email" type="email" placeholder="o.teu@email.pt" autocomplete="email">
+      <button class="principal" id="pedirCodigo">Enviar código</button>
+      <div id="passoCodigo" class="escondido">
+        <input id="codigo" type="text" inputmode="numeric" maxlength="8" placeholder="Código que recebeste no email" autocomplete="one-time-code">
+        <button class="principal" id="confirmarCodigo">Entrar</button>
+      </div>
+      <div class="erro" id="estadoOnline" style="color:var(--suave)"></div>
+    </div>
+    <div id="personagem">
     <label class="titulo">A tua personagem</label>
     <div style="display:flex;align-items:center;gap:12px;margin:6px 0 4px">
       <div class="avatar" id="novoAvatar"></div><div class="nomeprev" id="novoNome"></div>
     </div>
     <div class="erro" style="color:var(--suave)">Calhou-te este nome e este aspeto. Podes mudá-los depois no perfil 👤 (são as primeiras missões).</div>
     <button class="principal" id="entrar">Entrar no mapa</button>
+    </div>
     <button class="principal escondido" id="instalar" style="background:var(--verde);color:#fff">📲 Instalar como app</button>
     <div class="erro" id="estadoInstalar" style="color:var(--suave)"></div>
   </div>
@@ -207,6 +220,8 @@
 <script src="regras.js"></script>
 <script src="construcoes.js"></script>
 <script src="ciencia.js"></script>
+<script src="config-online.js"></script>
+<script src="rede.js"></script>
 <script>
 // =====================================================================
 //  Simulação jogável do jogo completo. As regras vêm todas dos ficheiros .js
@@ -226,7 +241,7 @@ const URLP = new URLSearchParams(location.search);
 // ?teste → anda-se a tocar no mapa e há botões ⏩ (guarda à parte, para não estragar o jogo real).
 // Sem ?teste usa-se o GPS; se não houver GPS (ex.: computador), passa sozinho para o modo de teste.
 const PEDIU_TESTE = URLP.has('teste');
-const CHAVE = 'bandeiras.jogo.j' + (URLP.get('j') || '1') + (PEDIU_TESTE ? '.teste' : '');
+const CHAVE = URLP.has('online') ? 'bandeiras.online' : 'bandeiras.jogo.j' + (URLP.get('j') || '1') + (PEDIU_TESTE ? '.teste' : '');   // 🌐 online: o jogo está no servidor (aqui só uma cópia)
 const PRECISAO_MAXIMA = 40;          // GPS pior que ±40 m não conta para estar num sítio
 let modoTeste = false, precisaoAtual = 0;
 const REC = ['ouro', 'comida', 'pao', 'peixe', 'pedra', 'ferro', 'madeira', 'ciencia'];
@@ -306,7 +321,7 @@ function atualizarTerritorio() {
   const novos = [];
   for (const p of POIS) {
     const e = est(p.id);
-    if (e.dono || !noTerritorio(p)) continue;
+    if (e.dono || !noTerritorio(p)) continue;   // 🌐 online: mesmo que outro o tenha anexado (fica com 2 donos)
     e.dono = true; e.acc = 0; if (P.anexando === p.id) P.anexando = null;
     if (categoriaPorId(p.cat).produz.comida) cumprir('comida');
     atualizarPin(p); novos.push(p);
@@ -599,10 +614,10 @@ function moverPara(latlng, precisao = 0) {
 
 // Cada POI é um círculo com o emoji do seu tipo (cor da categoria; rebordo diz se é desconhecido, reconhecido ou teu)
 function iconePoi(p) {
-  const c = categoriaPorId(p.cat), e = est(p.id);
-  const cls = e.dono ? 'meu' : e.recon ? 'rec' : '';
+  const c = categoriaPorId(p.cat), e = est(p.id), o = donoOutro(p);
+  const cls = e.dono ? 'meu' : o ? 'outro' : e.recon ? 'rec' : '';
   return L.divIcon({ className: 'pe', iconSize: [34, 34], iconAnchor: [17, 17],
-    html: `<div class="${cls}" style="border-color:${e.dono ? P.cor : c.cor}">${c.icone}</div>` });
+    html: `<div class="${cls}" style="border-color:${e.dono ? P.cor : o ? o.cor : c.cor}">${c.icone}</div>` });
 }
 const atualizarPin = p => pins[p.id] && pins[p.id].setIcon(iconePoi(p));
 // Só ficam no mapa os pins da zona à vista (assim o telemóvel não fica lento com centenas de POIs)
@@ -919,7 +934,7 @@ function tick() {
     if (c.energiaAnexar !== 0) { const passo = minPorEnergiaAnexar() * MIN, b = Math.floor(e.ms / passo) - Math.floor(antes / passo); if (b > 0) ajustarEnergia(-b); }
     texto = `${c.icone} A anexar ${p.nome} · ${fmtTempo(e.ms)} / ${horasAnexarDe(c)}h`;
     if (e.ms >= horasAnexarDe(c) * HORA) {
-      e.dono = true; e.acc = 0; P.anexando = null; darXp(XP_POR_ANEXAR);
+      e.dono = true; e.acc = 0; P.anexando = null; darXp(XP_POR_ANEXAR); if (ONLINE) redeAnexar([p.id]);   // 🌐 confirma no servidor
       if (c.produz.comida) cumprir('comida');
       atualizarPin(p);
       aviso(`🏆 Anexaste ${p.nome}! +${XP_POR_ANEXAR} XP`);
@@ -961,7 +976,7 @@ function tick() {
 
   if (silencioso) return;
   if (escolhendoCasa) atualizarEscolhaCasa();
-  guardar(); atualizarHud(); desenharFeiras();
+  guardar(); if (ONLINE) redeGravar(); atualizarHud(); desenharFeiras();
   $('zona').textContent = texto; $('zona').classList.toggle('escondido', !texto || !!escolhendoCasa);
   if (aberto) render();
 }
@@ -1024,6 +1039,7 @@ const distTxt = (s, raio) => !posAtual ? '' : presente(s, raio) ? 'Estás no loc
 
 // ---- POI ----
 function bloqueioAnexar(p) {
+  const o = donoOutro(p); if (o) return `Este POI é de ${o.nome}`;   // 🌐
   if (maxEdificiosNivel(nivel()) === 0) return 'Nível 0: chega ao nível 1 para anexar.';
   if (categoriaPorId(p.cat).soClas && !podePescar()) return `🎣 Pesca: só clãs de Elfos ou de Humanos com ${categoriaPorId(p.cat).pontosCla} pontos do clã`;
   if (meusFora().length >= maxEdificiosNivel(nivel())) return `Limite de POIs (${meusFora().length}/${maxEdificiosNivel(nivel())}) · sobe de nível ou constrói torres`;
@@ -1082,6 +1098,8 @@ function renderPoi() {
   const ciclo = c.cicloHoras === 24 ? 'por dia' : c.cicloHoras === 1 ? 'por hora' : `a cada ${c.cicloHoras}h`;
   const prod = c.depositaAs !== undefined ? `${fmtRec(c.produz)} por dia, entregue às ${c.depositaAs}h sem recolha` : `${fmtRec(c.produz)} ${ciclo}${c.horasPorDia ? ` (só ${c.horasPorDia}h por dia)` : ''} · acumula ${c.maxCiclos * c.cicloHoras >= 24 && (c.maxCiclos * c.cicloHoras) % 24 === 0 ? (c.maxCiclos * c.cicloHoras / 24) + ' dia(s)' : c.maxCiclos * c.cicloHoras + 'h'}`;
   let h = '';
+  const dono = donoOutro(p);   // 🌐
+  if (dono) h += `<div class="bloco"><div class="r">🏳️ ${e.dono ? 'Também é de' : 'De'} ${esc(dono.avatar || '')} ${esc(dono.nome)}</div><div class="nota">${e.dono ? 'É teu por estar no teu território e dele por o ter anexado: cada um recolhe a sua produção.' : 'Este POI já tem dono: só ele recolhe o que produz.'}</div></div>`;
   // Reconhecimento
   const R = RECONHECIMENTO;
   h += `<div class="linhaItem${e.recon ? ' feita' : ''}"><span>🔍</span><span class="t">Reconhecimento<small>${e.recon ? 'Já feito' : `Uma vez: ${(m => `🪙 ${R.ouro * m} + 🔬 ${(R.ciencia || 0) * m} + ${R.quantidade * m} de um recurso ao calhas`)(nivel() < R.xpAteNivel ? R.multAteNivel : 1)}${nivel() < R.xpAteNivel ? ' + ' + R.xp + ' XP (e recursos em dobro até ao nível ' + R.xpAteNivel + ')' : ''}`}</small></span>
@@ -1463,13 +1481,28 @@ function renderCiencia() {
 
 // ---- Perfil e missões ----
 const edicao = {};
+// 🌐 Ranking (online): jogadores e clãs pelos pontos das bandeiras
+async function abrirRanking() {
+  cab('🏆', 'Ranking', 'Pontos das bandeiras · os 100 primeiros');
+  $('fCorpo').innerHTML = '<div class="nota">A carregar…</div>'; aberto = 'ranking'; $('folha').classList.remove('escondido');
+  try {
+    const r = await redeRanking(); if (aberto !== 'ranking') return;
+    const linha = (i, icone, nome, extra, pts, eu) => `<div class="linhaItem${eu ? ' feita' : ''}"><span>${i + 1}.</span><span class="t">${icone} ${esc(nome)}<small>${extra}</small></span><span class="xp">🏆 ${pts}</span></div>`;
+    const fac = f => f && FACOES[f] ? ` · ${FACOES[f].icone} ${FACOES[f].nome}` : '';
+    $('fCorpo').innerHTML = '<div class="seccao">👤 Jogadores</div>'
+      + (r.jogadores.map((j, i) => linha(i, esc(j.avatar || ''), j.nome, `nível ${j.nivel}${fac(j.facao)}`, j.pontos, j.nome === P.nome)).join('') || '<div class="nota">Ainda ninguém.</div>')
+      + '<div class="seccao">🏰 Clãs</div>'
+      + (r.clas.map((c, i) => linha(i, '🏰', c.nome, c.tipo === 'multi' ? '🌍 Multicultural' : 'Só' + fac(c.facao), c.pontos, false)).join('') || '<div class="nota">Os clãs online chegam na próxima fase.</div>')
+      + `<div class="acoes">${btn('Voltar', () => abrir('perfil'))}</div>`;
+  } catch (err) { $('fCorpo').innerHTML = `<div class="nota">Não foi possível ler o ranking: ${esc(err.message)}</div><div class="acoes">${btn('Voltar', () => abrir('perfil'))}</div>`; }
+}
 function renderPerfil() {
   const n = nivel();
   cab(P.avatar, P.nome, `Militante · Nível ${n} · ${P.xp} XP${P.facao ? ' · ' + FACOES[P.facao].nome : ''}${P.niv.bandeira ? ` · 🏆 ${Math.floor(P.pontos || 0)} pontos` : ''}`);
   $('fIcone').style.background = P.cor;
   const D = diariasDeHoje(), meiaNoite = new Date(agora()); meiaNoite.setHours(24, 0, 0, 0);
   const bauFeito = bauAbertoHoje();
-  let h = `<div class="seccao">🎁 Baú diário</div>
+  let h = (ONLINE && R.eu ? `<div class="seccao">🌐 Online · ${esc(R.eu.email || '')}</div><div class="acoes">${btn('🏆 Ranking', abrirRanking, true, 'ok')}${btn('Sair da conta', redeSair)}</div>` : '') + `<div class="seccao">🎁 Baú diário</div>
     <div class="linhaItem${bauFeito ? ' feita' : ''}"><span>🎁</span><span class="t">${bauFeito ? 'Já abriste o baú de hoje' : 'Tens um baú à tua espera'}
       <small>${bauFeito ? `${P.bauPremio ? 'Deu ' + fmtRec(P.bauPremio) + ' · ' : ''}novo baú em ${fmtTempo(meiaNoite - agora())}` : `Dá ${BAU_DIARIO.quantos} destes ao calhas, ${BAU_DIARIO.quantidade} de cada: ${BAU_DIARIO.recursos.map(k => ic(k) + ' ' + RECURSOS[k].nome).join(' · ')}`}</small></span>${bauFeito ? '' : btn('Abrir', abrirBauDiario)}</div>`;
   h += `<div class="seccao">📅 Missões diárias · novas em ${fmtTempo(meiaNoite - agora())}</div>`;
@@ -1628,7 +1661,7 @@ botaoMusica();
 function ativarModoTeste(motivo) {
   if (modoTeste) return;
   modoTeste = true; estadoGps = `${motivo} · toca no mapa para andar`;
-  document.querySelector('.tempo').classList.remove('escondido');
+  if (!ONLINE) document.querySelector('.tempo').classList.remove('escondido');   // 🌐 online: sem ⏩ (o tempo é o verdadeiro)
   mapa.on('click', e => { if (!escolhendoCasa) moverPara(e.latlng); });   // a escolher a casa, tocar escolhe o sítio
   moverPara(L.latLng(P.pos));
 }
@@ -1662,13 +1695,45 @@ function iniciarJogo() {
   desenharNatureza(); desenharPois(); desenharCasa(); atualizarTerritorio(); desenharEsconderijos(); desenharPercurso();
   if (PEDIU_TESTE) ativarModoTeste('Modo de teste'); else iniciarGps();
   setInterval(tick, 1000);
+  if (ONLINE) {   // 🌐 grava já, lê os outros jogadores e repete de minuto a minuto; grava também ao sair
+    P.salto = 0; redeGravar(true); redeAtualizarMundo(); setInterval(redeAtualizarMundo, 60000);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) redeGravar(true); else redeAtualizarMundo(); });
+  }
   // manter o ecrã ligado enquanto o jogo está aberto (se o telemóvel deixar)
   const acordado = () => { try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch {} };
   document.addEventListener('click', acordado, { once: true });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { acordado(); tick(); } });
   setTimeout(() => mapa.invalidateSize(), 50);
 }
-if (P) iniciarJogo(); else { $('criacao').classList.remove('escondido'); pintarAvatar($('novoAvatar'), rasc); $('novoNome').textContent = rasc.nome; }
+const mostrarCriacao = () => { $('criacao').classList.remove('escondido'); pintarAvatar($('novoAvatar'), rasc); $('novoNome').textContent = rasc.nome; };
+// 🌐 Online: entrar com email e código; o jogo vem do servidor (se ainda não houver, cria-se a personagem)
+async function arrancarOnline() {
+  $('criacao').classList.remove('escondido'); $('personagem').classList.add('escondido'); $('online').classList.remove('escondido');
+  const st = t => { $('estadoOnline').textContent = t; };
+  if (!redeConfigurada()) return st('Falta ligar o jogo ao servidor (config-online.js).');
+  if (!await redeCarregarBiblioteca()) return st('Sem ligação à internet. Tenta outra vez.');
+  const depoisDeEntrar = async () => {
+    st('A carregar o teu jogo…');
+    try {
+      const e = await redeCarregarEstado();
+      if (e) { P = e; P.salto = 0; guardar(); $('criacao').classList.add('escondido'); iniciarJogo(); }
+      else { P = null; $('online').classList.add('escondido'); $('personagem').classList.remove('escondido'); mostrarCriacao(); }
+    } catch (err) { st('Erro a carregar o jogo: ' + err.message); }
+  };
+  if (await redeSessao()) return depoisDeEntrar();
+  $('pedirCodigo').onclick = async () => {
+    const email = $('email').value.trim(); if (!email.includes('@')) return st('Escreve o teu email.');
+    st('A enviar o código…');
+    try { await redePedirCodigo(email); $('passoCodigo').classList.remove('escondido'); st(`Enviámos um código para ${email}. Escreve-o aqui (vê também o spam).`); }
+    catch (err) { st(/signup|not allowed|not found/i.test(err.message) ? 'Este email não está convidado para o teste.' : 'Erro: ' + err.message); }
+  };
+  $('confirmarCodigo').onclick = async () => {
+    st('A confirmar…');
+    try { await redeConfirmarCodigo($('email').value.trim(), $('codigo').value.trim()); depoisDeEntrar(); }
+    catch (err) { st('Código errado ou fora de prazo. Pede outro.'); }
+  };
+}
+if (ONLINE) arrancarOnline(); else if (P) iniciarJogo(); else mostrarCriacao();
 // Service worker: necessário para o telemóvel oferecer "Instalar app"
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js')
   .then(() => { $('estadoInstalar').textContent = 'Instalação: service worker ativo · à espera do Chrome…'; })
