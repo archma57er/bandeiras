@@ -29,6 +29,14 @@ const XP_LIMITE_SEM_FACAO = XP_NIVEIS.slice(0, NIVEL_ESCOLHA_FACAO).reduce((a, b
 const somarXp = (xp, n, temFacao) => temFacao ? xp + n : Math.min(xp + n, Math.max(xp, XP_LIMITE_SEM_FACAO));
 
 const XP_POR_KM = 5;
+// 🚗 A pé ou de carro: acima de 25 km/h (média dos últimos 30 s, ou a velocidade que o GPS dá) conta como carro.
+// De carro só os primeiros 10 km de cada dia dão XP (e não contam para as missões de andar nem para a madeira dos Elfos).
+const VEL_CARRO_KMH = 25;
+const KM_CARRO_XP_DIA = 10;
+// 👟 Passos (só na app Android, que lê o contador de passos do telemóvel): 2 XP por cada 500 passos
+// (≈ 5 XP por km, o mesmo que a pé pelo GPS). Com os passos ligados, a XP a pé vem só dos passos.
+const PASSOS_BLOCO = 500;
+const XP_POR_PASSOS = 2;
 const XP_POR_ANEXAR = 60;
 // Recursos com que um jogador novo começa. A casa não produz comida: 50 dá para ~12 dias de consumo
 // depois do nível 3, o tempo de anexar o primeiro POI de comida (missão do nível 1).
@@ -45,8 +53,8 @@ const PROVAS_FACAO = {
              texto: 'Comprar um baú, ou anexar/reconhecer um banco, ou vender na feira.' },
 };
 
-// Avatares: 12, livres para todos (não dependem da fação). Mostram-se misturados, por esta ordem.
-const AVATARES = ['🧝‍♀️', '👷', '🧙‍♂️', '🧚‍♂️', '👩‍🌾', '🧑‍💼', '🧝‍♂️', '👩‍🏭', '🧙‍♀️', '👨‍🌾', '🧚‍♀️', '🧑‍🔧'];
+// Avatares grátis (livres para todos, não dependem da fação). Os desenhos e os avatares pagos 💎 estão em visual.js.
+const AVATARES = ['elfa', 'construtor', 'mago', 'fado', 'agricultora', 'mercador', 'elfo', 'ferreira', 'maga', 'agricultor', 'fada', 'mecanico', 'gnomo'];
 
 // Nome ao calhas de um jogador novo: "Bandeirinhas" + 4 algarismos (16 caracteres, o máximo).
 // Quando os números acabam (todos ocupados), tira-se uma letra e ganha-se um algarismo:
