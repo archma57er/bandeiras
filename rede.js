@@ -4,7 +4,14 @@
 //  Só funciona com ?online no endereço e com config-online.js preenchido.
 //  Usa as variáveis do jogo (P, POIS, mapa, est, aviso…), que existem quando estas funções correm.
 // =====================================================================
-const ONLINE = new URLSearchParams(location.search).has('online');
+// Online com ?online no endereço, ou sempre que há uma conta aberta neste aparelho
+// (a app instalada abre sem ?online). "Sair da conta" volta ao jogo sozinho; ?sozinho também, só dessa vez.
+const ONLINE = (() => {
+  const q = new URLSearchParams(location.search);
+  if (q.has('online')) return true;
+  if (q.has('sozinho')) return false;
+  try { return !!localStorage.getItem('bandeiras.sessao'); } catch (e) { return false; }
+})();
 const R = { sb: null, eu: null, donos: {}, jogadores: {}, ultimaGrav: 0, aGravar: false, aPedir: new Set() };
 
 const redeConfigurada = () => typeof SUPABASE_URL === 'string' && !!SUPABASE_URL && !!SUPABASE_CHAVE;

@@ -238,7 +238,7 @@ const URLP = new URLSearchParams(location.search);
 // ?teste → anda-se a tocar no mapa e há botões ⏩ (guarda à parte, para não estragar o jogo real).
 // Sem ?teste usa-se o GPS; se não houver GPS (ex.: computador), passa sozinho para o modo de teste.
 const PEDIU_TESTE = URLP.has('teste');
-const CHAVE = URLP.has('online') ? 'bandeiras.online' : 'bandeiras.jogo.j' + (URLP.get('j') || '1') + (PEDIU_TESTE ? '.teste' : '');   // 🌐 online: o jogo está no servidor (aqui só uma cópia)
+const CHAVE = ONLINE ? 'bandeiras.online' : 'bandeiras.jogo.j' + (URLP.get('j') || '1') + (PEDIU_TESTE ? '.teste' : '');   // 🌐 online: o jogo está no servidor (aqui só uma cópia)
 const PRECISAO_MAXIMA = 40;          // GPS pior que ±40 m não conta para estar num sítio
 let modoTeste = false, precisaoAtual = 0;
 const REC = ['ouro', 'comida', 'pao', 'peixe', 'pedra', 'ferro', 'madeira', 'ciencia'];
